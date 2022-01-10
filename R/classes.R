@@ -219,7 +219,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
                                  response$set_cookie('sid', mySid) # do I set it every time?
                                  return(TRUE)
                                } else { # we don't
-                                 traceback(NULL, 1000)
+                                 stop(e$message, call. = FALSE)
                                  raise(self$HTTPError$unauthorized(
                                    body = "401 Invalid session ID",
                                    headers = list("WWW-Authenticate" = "Basic"))
@@ -232,7 +232,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
                              newSession <-tryCatch(
                                         private$auth_fun(user_password[[1]], user_password[[2]]),
                                         error = function(e){
-                                          traceback(NULL, 1000)
+                                          stop(e$message, call. = FALSE)
                                           raise(self$HTTPError$unauthorized(
                                             body = paste(e," --- 401 Invalid Username/Password"),
                                             headers = list("WWW-Authenticate" = "Basic"))
