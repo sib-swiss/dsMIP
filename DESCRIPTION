@@ -1,11 +1,16 @@
 Package: dsMIP
 Type: Package
-Title: What the Package Does (Title Case)
+Title: MIP datashield integration
 Version: 0.1.0
-Author: Who wrote it
-Maintainer: The package maintainer <yourself@somewhere.net>
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
-License: What license is it under?
+Authors@R: 
+    c(person(given = "Iulian",
+             family = "Dragan",
+             role = c("aut", "cre"),
+             email = "iulian.dragan@sib.swiss"))
+Maintainer: Iulian Dragan <iulian.dragan@sib.swiss>
+Description: Backend for the MIP web application.
+License: GPL
 Encoding: UTF-8
 LazyData: true
+Depends: RestRserve, parallel, R6
+RoxygenNote: 7.1.1
