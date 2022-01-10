@@ -206,6 +206,7 @@ MinionHive <- R6Class('MinionHive',
                          )
   )
 
+
 # modified AuthBackendBasic to allow sessions
 #' @export
 SentryBackend <- R6::R6Class('SentryBackend',
