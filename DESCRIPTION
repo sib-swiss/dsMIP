@@ -14,3 +14,5 @@ Encoding: UTF-8
 LazyData: true
 Depends: RestRserve, parallel, R6
 RoxygenNote: 7.1.1
+Suggests: 
+    testthat

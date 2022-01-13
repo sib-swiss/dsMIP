@@ -66,7 +66,9 @@ WebSession <- R6::R6Class('WebSession',
                        remoteLoad <- function(resourceMap){
                         sapply(names(resourceMap), function(x){
                           tryCatch(
-                          datashield.assign.resource(opals[x], sub('.','_',resourceMap[[x]], fixed = TRUE), resourceMap[[x]], async = FALSE),
+                          sapply(resourceMap[[x]], function(y){
+                            datashield.assign.resource(opals[x], sub('.','_',y, fixed = TRUE), y, async = FALSE)
+                            }),
                           error = function(e) stop(datashield.errors())
                           )
                         })
@@ -219,7 +221,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
                                  response$set_cookie('sid', mySid) # do I set it every time?
                                  return(TRUE)
                                } else { # we don't
-                                 stop(e$message, call. = FALSE)
+                                 stop(e$message)
                                  raise(self$HTTPError$unauthorized(
                                    body = "401 Invalid session ID",
                                    headers = list("WWW-Authenticate" = "Basic"))
@@ -232,7 +234,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
                              newSession <-tryCatch(
                                         private$auth_fun(user_password[[1]], user_password[[2]]),
                                         error = function(e){
-                                          stop(e$message, call. = FALSE)
+                                          stop(e$message)
                                           raise(self$HTTPError$unauthorized(
                                             body = paste(e," --- 401 Invalid Username/Password"),
                                             headers = list("WWW-Authenticate" = "Basic"))
