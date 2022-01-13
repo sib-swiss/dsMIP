@@ -96,5 +96,6 @@ test_that("Second request works", {
   response2 <- app$process_request(req2)
   x <- jsonlite::fromJSON(response2$body)
   expect_equal(x$groups$label[[1]], 'person')
+  suppressWarnings(gc(FALSE))
 })
 
