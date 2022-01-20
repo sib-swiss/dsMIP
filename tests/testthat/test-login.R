@@ -34,17 +34,18 @@ test_that("Web app start works", {
     FUN = function(req,res){
         thisSession <- sessionList[[req$cookies$sid$value]]
         makeJson <- function(){
-          vars <- thisSession$minionCall(getVars, config$mainGroups)
+          vars <- thisSession$minionCall(getVars, list(config$mainGroups))
           bubbleData$groups <<-lapply(names(vars), function(x){
             list(id = x, label = x, variables = Reduce(union, vars[[x]]))
           })
-          assign('bubbleJson', toJSON(bubbleData), envir = .GlobalEnv)
+          assign('bubbleJson', toJSON(bubbleData, auto_unbox = TRUE), envir = .GlobalEnv)
           save(bubbleJson, file = '../cache/bubble.json')
         }
         nocache <- NULL
         if('nocache' %in% names(req$parameters_query)){
           nocache <- req$parameters_query[['nocache']] %>% tolower
         }
+
         if(!is.null(nocache) && nocache %in% c('true', 'yes')){
           makeJson()
           out <- bubbleJson
@@ -61,7 +62,14 @@ test_that("Web app start works", {
             }
           }
         }
-
+        # launch the widening (async) before returning
+        pivotArgs <- list( symbol = 'w_measurement',
+                           what = 'measurement',
+                           value.var = 'value_as_number',
+                           formula = 'person_id ~ measurement_name',
+                           by.col = 'person_id',
+                           fun.aggregate = function(x)x[1])
+        sess$minionCall(dssPivot, pivotArgs, async = TRUE)
         res$set_body(out)
 
     }
@@ -69,6 +77,56 @@ test_that("Web app start works", {
   expect_equal(app$endpoints$GET, c(exact = '/start'))
 
 })
+
+app$add_get(
+  path = "/means",
+  FUN = function(req,res){
+    thisSession <- sessionList[[req$cookies$sid$value]]
+    makeJson <- function(){
+      vars <- thisSession$minionCall(getVars, list(config$mainGroups))
+      bubbleData$groups <<-lapply(names(vars), function(x){
+        list(id = x, label = x, variables = Reduce(union, vars[[x]]))
+      })
+      assign('bubbleJson', toJSON(bubbleData, auto_unbox = TRUE), envir = .GlobalEnv)
+      save(bubbleJson, file = '../cache/bubble.json')
+    }
+    nocache <- NULL
+    if('nocache' %in% names(req$parameters_query)){
+      nocache <- req$parameters_query[['nocache']] %>% tolower
+    }
+
+    if(!is.null(nocache) && nocache %in% c('true', 'yes')){
+      makeJson()
+      out <- bubbleJson
+    } else {
+      if(exists('bubbleJson', envir = .GlobalEnv)){
+        out <- bubbleJson
+      } else {
+        if(file.exists('../cache/bubble.json')){
+          load('../cache/bubble.json', envir = .GlobalEnv)
+          out <- bubbleJson
+        } else {
+          makeJson()
+          out <- bubbleJson
+        }
+      }
+    }
+    # launch the widening (async) before returning
+    pivotArgs <- list( symbol = 'w_measurement',
+                       what = 'measurement',
+                       value.var = 'value_as_number',
+                       formula = 'person_id ~ measurement_name',
+                       by.col = 'person_id',
+                       fun.aggregate = function(x)x[1])
+    sess$minionCall(dssPivot, pivotArgs, async = TRUE)
+    res$set_body(out)
+
+  }
+)
+expect_equal(app$endpoints$GET, c(exact = '/start'))
+
+})
+
 
 
 test_that("Login works", {
@@ -81,7 +139,7 @@ test_that("Login works", {
     headers = headers
   )
   response <<- app$process_request(req)
-  x <- jsonlite::fromJSON(response$body)
+  x <- jsonlite::fromJSON(response$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(x$groups$label[[1]], 'person')
 })
 
@@ -99,3 +157,6 @@ test_that("Second request works", {
   suppressWarnings(gc(FALSE))
 })
 
+for(i in setdiff(dir('/home/iulian/R/x86_64-pc-linux-gnu-library/3.6'), dir('/home/iulian/R/x86_64-pc-linux-gnu-library/4.1/'))){
+  try(install.packages(i))
+}

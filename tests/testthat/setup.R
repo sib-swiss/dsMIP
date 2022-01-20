@@ -1,6 +1,6 @@
 library(jsonlite)
 library(magrittr)
-library(digest)
+
 
 stopThem <<- FALSE
 x <- system2('docker', args = c('ps'), stdout = TRUE )
@@ -19,5 +19,5 @@ if(stopThem){
     out <- strsplit(y, '\\s+')[[1]]
     out[length(out)]
   }) %>% unlist
-  conts[1] <- 'stop' # conts now contains the args for a 'docker stop' command executed in teardown
+  conts[1] <- 'stop' # conts now contains the args for a 'docker stop' command - will be executed in teardown
 }

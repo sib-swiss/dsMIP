@@ -1,4 +1,4 @@
-#' @import RestRserve
+#' @import RestRserve, digest, dsSwissKnifeClient, dsQueryLibrary, dsBaseclient
 #' @export
 WebSession <- R6::R6Class('WebSession',
                    private = list(
@@ -27,8 +27,8 @@ WebSession <- R6::R6Class('WebSession',
                              stop(e$message)
                            })
                          # just for dev:
-                         self$minionEval(expression(dssSetOption(list('cdm_schema' = 'synthea_omop'))))
-                         self$minionEval(expression(dssSetOption(list('vocabulary_schema' = 'omop_vocabulary'))))
+                         self$minionEval(expression(dssSetOption(list('cdm_schema' = 'synthea_omop'))), async = TRUE)
+                         self$minionEval( expression(dssSetOption(list('vocabulary_schema' = 'omop_vocabulary'))), async = TRUE)
                          ####
 
                          # load resources:
@@ -43,7 +43,7 @@ WebSession <- R6::R6Class('WebSession',
                      },
                      finalize = function(){
                        # if we fail here there's no garbage collection so tryCatch:
-                       tryCatch(self$minionEval(expression(datashield.logout(opals))),
+                       tryCatch(self$minionEval(async = FALSE, expression(datashield.logout(opals))),
                                 error = function(e) warning(e$message))
                        #stopCluster(private$.minion) # maybe...
                        # or maybe give it back:
@@ -56,15 +56,18 @@ WebSession <- R6::R6Class('WebSession',
                        minionLogin <- function(logindata,usr, pass){
                          logindata$user <- usr
                          logindata$password <- pass
+                         print('wait')
                          assign('opals', datashield.login(logins = logindata), envir = .GlobalEnv)
+                         return(NULL)
                        }
 
-                       self$minionCall(minionLogin, logindata, usr, pass)
+                       self$minionCall( minionLogin, list(logindata, usr, pass), async = TRUE)
                        private$.sid <- paste0(runif(1), Sys.time()) %>% digest
                      },
                      loadNodeResources = function(){
                        remoteLoad <- function(resourceMap){
                         sapply(names(resourceMap), function(x){
+
                           tryCatch(
                           sapply(resourceMap[[x]], function(y){
                             datashield.assign.resource(opals[x], sub('.','_',y, fixed = TRUE), y, async = FALSE)
@@ -72,37 +75,74 @@ WebSession <- R6::R6Class('WebSession',
                           error = function(e) stop(datashield.errors())
                           )
                         })
-                        datashield.symbols(opals)
+                      #  datashield.symbols(opals)
+                        return(NULL)
                        }
-                       self$minionCall(remoteLoad, private$.nodeResources)
+                       self$minionCall(remoteLoad, list(private$.nodeResources), async = TRUE)
                       },
                      loadNodeData = function(){
                        remoteData <- function(dfs){
+
                          sapply(dfs, function(x){
                           tryCatch(
                            dsqLoad(symbol= x, domain = 'concept_name', query_name = x, datasources = opals),
                            error = function(e) stop(datashield.errors())
                          )
                         })
-                         datashield.symbols(opals)
+                         # datashield.symbols(opals)
+                         return(NULL)
                        }
-                       self$minionCall(remoteData, private$.nodeDFs)
+                       self$minionCall(remoteData, list(private$.nodeDFs), async = TRUE)
                      },
-                     minionEval = function(what){
-                       private$.lastTime <- Sys.time()
+                     minionEval = function(what, async = FALSE, tag = NULL, timeout = 60){
+                    #   private$.lastTime <- Sys.time()
                        if(!is.null(private$.minion)){ # normal execution
-                          parallel::clusterCall(private$.minion, eval, what, env = .GlobalEnv)[[1]]
+                    #      parallel::clusterCall(private$.minion, eval, what, env = .GlobalEnv)[[1]]
+                          self$minionCall(fun = eval, list(what, env = .GlobalEnv), async = async, tag = tag, timeout = timeout)
                        } else {
+                         private$.lastTime <- Sys.time()
                          eval(what, envir = .GlobalEnv) # debugging
                        }
                      },
-                     minionCall = function(fun, ...){
+                     minionCall = function(fun, arglist = list(), async = FALSE, tag = NULL, timeout = 60){
+                       # now with improved async functionality
                        private$.lastTime <- Sys.time()
-                       if(!is.null(private$.minion)){ # normal execution
-                          parallel::clusterCall(private$.minion, fun, ...)[[1]]
-                       } else {
-                         do.call(fun, list(...))   # debug
+                       if(is.null(tag)){
+                         tag <- as.numeric(Sys.time())
                        }
+
+                      if(!is.null(private$.minion)){ # normal invocation
+                        parallel:::sendCall(private$.minion[[1]], fun, arglist, tag  = tag)
+                        if(async){
+                          return(tag)
+                        } else { # sync
+                          self$getResult(tag, timeout = timeout)[[1]]
+                        }
+                      } else {
+                           do.call(fun, arglist)   # debug
+                      }
+
+                     },
+                     getResult = function(tag, timeout = 60){
+                       st <- as.numeric(Sys.time()) # start time
+
+                       oldTimeout <- socketTimeout(private$.minion[[1]]$con, 1) # poll for one second
+                       while(TRUE){
+                        ret <- try(unserialize(private$.minion[[1]]$con), silent = TRUE)
+                        if('tag' %in% names(ret) && ret$tag == tag){ # wait for the result with my tag (discard all the others)
+                          socketTimeout(private$.minion[[1]]$con, oldTimeout)
+                          return(parallel:::checkForRemoteErrors(list(ret$value)))
+                        }
+
+                         if(as.numeric(Sys.time()) - st > timeout){
+                           # reset the socket timeout
+                           socketTimeout(private$.minion[[1]]$con, oldTimeout)
+                           stop(paste0('Reached timeout of ', timeout, ' seconds while waiting for results with tag ', tag))
+                         }
+                       }
+                       # reset the socket timeout
+                       socketTimeout(private$.minion[[1]]$con, oldTimeout)
+                       ret$value
                      },
                      getMinion = function(){
                        private$.minion
