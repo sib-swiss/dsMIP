@@ -15,6 +15,52 @@ test_that("Web app start works", {
     c(ret,out)
   }
 
+  prepareData <- function(){
+    objs <- sess$minionEval(expression(datashield.symbols(opals)))
+    ##### person
+    persName <- sapply(objs, function(x) grep('person',x, value = TRUE))
+    upsideDownPers <- dssSwapKeys(persName) # for each common name execute simultaneously on multiple servers
+    sapply(names(upsideDownPers), function(pName){
+      ds <- paste(upsideDownPers[[pName]], collapse = "', '")
+      ds <- paste0("'", ds, "'")
+      expr <- paste0('dssPivot(',
+                     "symbol = pName,
+                     what = pName,
+                     col.filter = 'c(\"person_id\", \"gender\", \"birth_datetime\", \"race\",\"ethnicity\", \"database\")',
+                     datasources = opals[c(", ds, ")]")
+      sess$minionEval(parse(text = expr), async = TRUE)
+    })
+
+    ###### measurement (here we do the join too)
+    measurementName <- sapply(objs, function(x) grep('measurement',x, value = TRUE))
+    upsideDownMeasurement <- dssSwapKeys(measurementName) # for each common name execute simultaneously on multiple servers
+    sapply(names(upsideDownMeasurement), function(mName){
+      ds <- paste(upsideDownMeasurement[[mName]], collapse = "', '")
+      ds <- paste0("'", ds, "'")
+      wideSym <- paste0('w_', mName)
+      pivotExpr <- paste0('dssPivot(',
+                          "symbol = ", wideSym,
+                          ", what =", mname,
+                          ", value.var = 'value_as_number',
+                     formula = 'person_id ~ measurement_name',
+                     by.col = 'person_id',
+                     fun.aggregate = function(x)x[1],
+                     datasources = opals[c(", ds, ")]")
+      sess$minionEval(parse(text = pivotExpr), async = TRUE)
+      # now join with person
+      pName <- sub('measurement', 'person', mName, fixed = TRUE)
+      joinExpr <- paste0("dssJoin(",
+                         "what = c('", wideSym, "', 'person'),
+                    symbol = 'working_set',
+                    by = 'person_id',
+                    datasources = opals[c(", ds, ")]")
+      sess$minionEval(parse(text = joinExpr), async = TRUE)
+
+    })
+
+  }
+
+
     sentry <- function(user , password ){ # must return a session, the user/pass check is delegated to the nodes
     WebSession$new(minionShop = minionHerd, usr = user, pass = password, logindata = config$loginData,resources = config$resourceMap, groups = config$mainGroups)
   }
@@ -62,68 +108,27 @@ test_that("Web app start works", {
             }
           }
         }
-        # launch the widening (async) before returning
-        pivotArgs <- list( symbol = 'w_measurement',
-                           what = 'measurement',
-                           value.var = 'value_as_number',
-                           formula = 'person_id ~ measurement_name',
-                           by.col = 'person_id',
-                           fun.aggregate = function(x)x[1])
-        sess$minionCall(dssPivot, pivotArgs, async = TRUE)
+        # launch the widening and join (async) before returning
+       # prepareData()
         res$set_body(out)
 
     }
   )
   expect_equal(app$endpoints$GET, c(exact = '/start'))
 
-})
 
-app$add_get(
-  path = "/means",
-  FUN = function(req,res){
-    thisSession <- sessionList[[req$cookies$sid$value]]
-    makeJson <- function(){
-      vars <- thisSession$minionCall(getVars, list(config$mainGroups))
-      bubbleData$groups <<-lapply(names(vars), function(x){
-        list(id = x, label = x, variables = Reduce(union, vars[[x]]))
-      })
-      assign('bubbleJson', toJSON(bubbleData, auto_unbox = TRUE), envir = .GlobalEnv)
-      save(bubbleJson, file = '../cache/bubble.json')
-    }
-    nocache <- NULL
-    if('nocache' %in% names(req$parameters_query)){
-      nocache <- req$parameters_query[['nocache']] %>% tolower
-    }
 
-    if(!is.null(nocache) && nocache %in% c('true', 'yes')){
-      makeJson()
-      out <- bubbleJson
-    } else {
-      if(exists('bubbleJson', envir = .GlobalEnv)){
-        out <- bubbleJson
-      } else {
-        if(file.exists('../cache/bubble.json')){
-          load('../cache/bubble.json', envir = .GlobalEnv)
-          out <- bubbleJson
-        } else {
-          makeJson()
-          out <- bubbleJson
-        }
-      }
-    }
-    # launch the widening (async) before returning
-    pivotArgs <- list( symbol = 'w_measurement',
-                       what = 'measurement',
-                       value.var = 'value_as_number',
-                       formula = 'person_id ~ measurement_name',
-                       by.col = 'person_id',
-                       fun.aggregate = function(x)x[1])
-    sess$minionCall(dssPivot, pivotArgs, async = TRUE)
-    res$set_body(out)
-
-  }
+  app$add_get(
+    path = "/means",
+    FUN = function(req,res){
+      thisSession <- sessionList[[req$cookies$sid$value]]
+      out <- thisSession$minionCall(dssColMeans, list('working_set'))
+      assign('mns', out, envir = .GlobalEnv)
+      out <- jsonlite::toJSON(out)
+      res$set_body(out)
+   }
 )
-expect_equal(app$endpoints$GET, c(exact = '/start'))
+expect_equal(app$endpoints$GET, c(exact = '/start', exact = '/means'))
 
 })
 
@@ -156,6 +161,21 @@ test_that("Second request works", {
   expect_equal(x$groups$label[[1]], 'person')
   suppressWarnings(gc(FALSE))
 })
+
+test_that("/means endpoint works", {
+  ### make the request:
+
+  req3 <-  Request$new(
+    path = "/means",
+    parameters_query = list(nocache = 'true'),
+    cookies = response$cookies
+  )
+  response3 <- app$process_request(req3)
+  x <- jsonlite::fromJSON(response3$body)
+  expect_equal(x$groups$label[[1]], 'person')
+  suppressWarnings(gc(FALSE))
+})
+
 
 for(i in setdiff(dir('/home/iulian/R/x86_64-pc-linux-gnu-library/3.6'), dir('/home/iulian/R/x86_64-pc-linux-gnu-library/4.1/'))){
   try(install.packages(i))

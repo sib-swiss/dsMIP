@@ -85,7 +85,7 @@ WebSession <- R6::R6Class('WebSession',
 
                          sapply(dfs, function(x){
                           tryCatch(
-                           dsqLoad(symbol= x, domain = 'concept_name', query_name = x, datasources = opals),
+                           dsqLoad(symbol= x, domain = 'concept_name', query_name = x, union = FALSE, datasources = opals),
                            error = function(e) stop(datashield.errors())
                          )
                         })
@@ -261,7 +261,6 @@ SentryBackend <- R6::R6Class('SentryBackend',
                                  response$set_cookie('sid', mySid) # do I set it every time?
                                  return(TRUE)
                                } else { # we don't
-                                 stop(e$message)
                                  raise(self$HTTPError$unauthorized(
                                    body = "401 Invalid session ID",
                                    headers = list("WWW-Authenticate" = "Basic"))
