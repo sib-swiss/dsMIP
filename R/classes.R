@@ -70,6 +70,7 @@ WebSession <- R6::R6Class('WebSession',
 
                           tryCatch(
                           sapply(resourceMap[[x]], function(y){
+
                             datashield.assign.resource(opals[x], sub('.','_',y, fixed = TRUE), y, async = FALSE)
                             }),
                           error = function(e) stop(datashield.errors())
@@ -79,6 +80,7 @@ WebSession <- R6::R6Class('WebSession',
                         return(NULL)
                        }
                        self$minionCall(remoteLoad, list(private$.nodeResources), async = TRUE)
+
                       },
                      loadNodeData = function(){
                        remoteData <- function(dfs){
@@ -116,7 +118,9 @@ WebSession <- R6::R6Class('WebSession',
                         if(async){
                           return(tag)
                         } else { # sync
-                          self$getResult(tag, timeout = timeout)[[1]]
+
+                            self$getResult(tag, timeout = timeout)[[1]]
+
                         }
                       } else {
                            do.call(fun, arglist)   # debug
@@ -152,8 +156,37 @@ WebSession <- R6::R6Class('WebSession',
                      },
                      getLastTime = function(){
                        private$.lastTime
-                     }
-                   )
+                     },
+                    getVars = function(){
+                      grps <- private$.nodeDFs
+                      rs <- private$.nodeResources
+                      ret <- list(person = c('date_of_birth','gender', 'race','ethnicity'))
+                      grps <- setdiff(grps, 'person')
+                      gv <- function(groups, res){
+
+                           sapply(groups, function(x){
+                             sapply(names(res), function(node){
+                            suffixes <- sub('.', '_', res[[node]], fixed = TRUE)
+                             objs <- paste(x, suffixes, sep = '_')
+
+                              sapply(objs, function(z){
+                                ds.levels(paste0(z, '$', x, '_name'), datasources = opals[node])[[1]]$Levels
+
+                              }, simplify = FALSE)
+
+                          }, simplify = FALSE)
+                        }, simplify = FALSE)
+                      }
+                      realGrps <- self$minionCall(gv, list(grps, rs), async = FALSE)
+                      realGrps <- sapply(realGrps, function(serverlist){
+                        sapply(serverlist, function(srv){
+                          Reduce(union, srv)
+                        }, simplify = FALSE) %>% Reduce(union, .)
+                      }, simplify = FALSE)
+                      c(ret, realGrps)
+                    }
+
+              )
 )
 #' @export
 MinionHive <- R6Class('MinionHive',
