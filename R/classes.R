@@ -86,8 +86,12 @@ WebSession <- R6::R6Class('WebSession',
                        remoteData <- function(dfs){
 
                          sapply(dfs, function(x){
+                          where_clause <- NULL
+                          if(x == 'measurement'){
+                            where_clause <- 'value_as_number is not null'
+                          }
                           tryCatch(
-                           dsqLoad(symbol= x, domain = 'concept_name', query_name = x, union = FALSE, datasources = opals),
+                           dsqLoad(symbol= x, domain = 'concept_name', query_name = x, where_clause = where_clause, union = FALSE, datasources = opals),
                            error = function(e) stop(datashield.errors())
                          )
                         })

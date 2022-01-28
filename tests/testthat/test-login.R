@@ -1,4 +1,6 @@
 test_that("Web app start works", {
+  # first, unleash the minions:
+  minionHerd <- MinionHive$new(config$workers, config$minWorkers, config$maxWorkers, config$addWorkers, c('dsBaseClient', 'dsSwissKnifeClient', 'dsQueryLibrary', 'dsResource'))
   sessionList <<- list()
   bubbleData <- list()
   bubbleData$datasets <- lapply(config$loginData$server,function(x){
@@ -52,7 +54,7 @@ test_that("Web app start works", {
   }
 
 
-    sentry <- function(user , password ){ # must return a session, the user/pass check is delegated to the nodes
+  sentry <- function(user , password ){ # must return a session, the user/pass check is delegated to the nodes
     WebSession$new(minionShop = minionHerd, usr = user, pass = password, logindata = config$loginData,resources = config$resourceMap, groups = config$mainGroups)
   }
 
@@ -75,7 +77,7 @@ test_that("Web app start works", {
         assign('myVars', vars, envir = .GlobalEnv)
 
         bubbleData$groups <<- lapply(names(vars), function(x){
-          list(id = x, label = x, variables =  vars[[x]], groups = 'cohorts')
+          list(id = x, label = x, variables =  make.names(vars[[x]]), groups = 'cohorts')
         })
         bubbleData$groups[[length(bubbleData$groups)+1]] <- cohortGroup
         assign('bubbleJson', toJSON(bubbleData, auto_unbox = TRUE), envir = .GlobalEnv)
@@ -139,7 +141,7 @@ test_that("Login works", {
     headers = headers
   )
   response <<- app$process_request(req)
-  x <- jsonlite::fromJSON(response$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  x <<- jsonlite::fromJSON(response$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(x$groups[[1]]$label[[1]], 'person')
 })
 
@@ -171,5 +173,19 @@ test_that("/means endpoint works", {
   suppressWarnings(gc(FALSE))
 })
 
+sess <- sessionList[[1]]
+sess$minionEval(expression(datashield.symbols(opals)))
+sess$minionEval(expression(datashield.errors()))
+sess$minionEval(expression())
+y <- sess$minionEval(expression(datashield.aggregate(opals, quote(selfUpgrade(NULL,NULL,NULL ,TRUE)), async = FALSE)))
+
+cls <- sess$minionEval(expression(dssColNames('working_set')))
+cls <- Reduce(union, cls)
+str(cls)
+str(x$groups)
 
 
+xvars <- sapply(x$groups, function(y)  y$variables)[2] %>% Reduce(union,.)
+cls <- sub('measurement_name\\.','', cls)
+setdiff(cls, xvars)
+setdiff(xvars, cls)
