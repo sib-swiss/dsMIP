@@ -9,9 +9,18 @@ WebSession <- R6::R6Class('WebSession',
                      .nodeResources = NULL, # db connection resources on the remote nodes
                      .nodeDFs = NULL # data frames to load on the remote nodes
                    ),
-                   public = list(
+                   public = list( nodeResources = list(),
                      initialize = function(minionShop = NULL, usr, pass, logindata, resources = NULL, groups = NULL){
-                         private$.nodeResources <- resources
+                         # private$.nodeResources <- resources
+                        private$.nodeResources <- lapply(names(resources), function(x){
+                                                    line <- logindata[logindata$server == x,,drop = FALSE]
+                                                    lapply(resources[[x]], function(y){
+                                                      line$node <- line$server # keep the old server name
+                                                      line$server <- y
+                                                      line
+                                                    })
+                                                  }) %>% unlist(recursive = FALSE) %>% Reduce(rbind, .)
+                        self$nodeResources = private$.nodeResources
                          private$.nodeDFs <- groups
                          if(!is.null(minionShop)){ # normal execution
                           private$.minion <- minionShop$provideMinion()
@@ -21,7 +30,8 @@ WebSession <- R6::R6Class('WebSession',
                          private$.minionShop <- minionShop
                          # try to login
                          tryCatch(
-                           self$nodeLogin(logindata,usr,pass),
+                    #       self$nodeLogin(logindata,usr,pass),
+                           self$nodeLogin(private$.nodeResources[,!(names(private$.nodeResources) %in% 'node')],usr,pass),
                            error = function(e){
                              private$.minionShop$returnMinion(private$.minion)
                              stop(e$message)
@@ -56,7 +66,6 @@ WebSession <- R6::R6Class('WebSession',
                        minionLogin <- function(logindata,usr, pass){
                          logindata$user <- usr
                          logindata$password <- pass
-                         print('wait')
                          assign('opals', datashield.login(logins = logindata), envir = .GlobalEnv)
                          return(NULL)
                        }
@@ -65,21 +74,18 @@ WebSession <- R6::R6Class('WebSession',
                        private$.sid <- paste0(runif(1), Sys.time()) %>% digest
                      },
                      loadNodeResources = function(){
-                       remoteLoad <- function(resourceMap){
-                        sapply(names(resourceMap), function(x){
-
-                          tryCatch(
-                          sapply(resourceMap[[x]], function(y){
-
-                            datashield.assign.resource(opals[x], sub('.','_',y, fixed = TRUE), y, async = FALSE)
-                            }),
-                          error = function(e) stop(datashield.errors())
+                       remoteLoad <- function(){
+                        tryCatch(
+                          sapply(names(opals), function(x){
+                            datashield.assign.resource(opals[x], sub('.','_',x, fixed = TRUE), x, async = FALSE)
+                           }),
+                            error = function(e) stop(datashield.errors())
                           )
-                        })
+
                       #  datashield.symbols(opals)
                         return(NULL)
                        }
-                       self$minionCall(remoteLoad, list(private$.nodeResources), async = TRUE)
+                       self$minionCall(remoteLoad, list(), async = TRUE)
 
                       },
                      loadNodeData = function(){
@@ -91,7 +97,7 @@ WebSession <- R6::R6Class('WebSession',
                             where_clause <- 'value_as_number is not null'
                           }
                           tryCatch(
-                           dsqLoad(symbol= x, domain = 'concept_name', query_name = x, where_clause = where_clause, union = FALSE, datasources = opals),
+                           dsqLoad(symbol= x, domain = 'concept_name', query_name = x, where_clause = where_clause, union = TRUE, datasources = opals),
                            error = function(e) stop(datashield.errors())
                          )
                         })
@@ -169,25 +175,23 @@ WebSession <- R6::R6Class('WebSession',
                       gv <- function(groups, res){
 
                            sapply(groups, function(x){
-                             sapply(names(res), function(node){
-                            suffixes <- sub('.', '_', res[[node]], fixed = TRUE)
-                             objs <- paste(x, suffixes, sep = '_')
-
-                              sapply(objs, function(z){
-                                ds.levels(paste0(z, '$', x, '_name'), datasources = opals[node])[[1]]$Levels
+                              make.names(ds.levels(paste0(x, '$', x, '_name'), datasources = opals)[[1]]$Levels)
 
                               }, simplify = FALSE)
 
-                          }, simplify = FALSE)
-                        }, simplify = FALSE)
                       }
+
                       realGrps <- self$minionCall(gv, list(grps, rs), async = FALSE)
-                      realGrps <- sapply(realGrps, function(serverlist){
+                      return(realGrps)
+                    },
+
+                    reshapeVars = function(vars, moreVars){
+                      realGrps <- sapply(vars, function(serverlist){
                         sapply(serverlist, function(srv){
                           Reduce(union, srv)
                         }, simplify = FALSE) %>% Reduce(union, .)
                       }, simplify = FALSE)
-                      c(ret, realGrps)
+                      c(moreVars, realGrps)
                     }
 
               )
@@ -292,19 +296,21 @@ SentryBackend <- R6::R6Class('SentryBackend',
                          inherit = AuthBackendBasic,
                          public = list(
                            authenticate = function(request, response) {
-                             mySid <- request$cookies[['sid']][['value']]
-                             if (!is.null(mySid)){
-                               if(mySid %in% names(sessionList)){ # we do have this session id
-                                 response$set_cookie('sid', mySid) # do I set it every time?
-                                 return(TRUE)
-                               } else { # we don't
-                                 raise(self$HTTPError$unauthorized(
-                                   body = "401 Invalid session ID",
-                                   headers = list("WWW-Authenticate" = "Basic"))
-                                 )
-                               }
 
-                             }
+                             mySid <- request$cookies[['siid']]
+                              if (!is.null(mySid)){
+                                if(mySid %in% names(sessionList)){ # we do have this session id
+                                  response$set_cookie('siid', mySid) # do I set it every time?
+                                  return(TRUE)
+                                } else { # we don't
+
+                                  raise(self$HTTPError$unauthorized(
+                                    body = "401 Invalid session ID",
+                                    headers = list("WWW-Authenticate" = "Basic"))
+                                  )
+                                }
+
+                              }
                              # if we are here we have no session id, check the credentials:
                              user_password = private$extract_credentials(request, response)
                              newSession <-tryCatch(
@@ -320,9 +326,9 @@ SentryBackend <- R6::R6Class('SentryBackend',
                              mySid <- newSession$getSid()
                              sessionList[[mySid]] <<- newSession
                              cookies <- request$cookies
-                             cookies$sid <- list(name = 'sid', value= mySid)
+                             cookies$siid <- list(name = 'siid', value= mySid)
                              request$cookies <- cookies
-                             response$set_cookie('sid', mySid)
+                             response$set_cookie('siid', mySid)
                            } # authenticate
 
                          )

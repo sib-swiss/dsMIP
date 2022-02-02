@@ -21,3 +21,5 @@ if(stopThem){
   }) %>% unlist
   conts[1] <- 'stop' # conts now contains the args for a 'docker stop' command - will be executed in teardown
 }
+
+

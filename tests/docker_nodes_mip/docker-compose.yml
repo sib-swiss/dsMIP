@@ -17,7 +17,7 @@ services:
                 - pgdata1:/sophia/data         
                   # added pgdata volume to separate it from the main container  
                 - ./postgresql.conf:/sophia/conf/postgresql.conf
-        shm_size: '1gb'          
+        shm_size: '2gb'          
 
     rserver1:
         image: obiba/opal-rserver:latest
@@ -67,7 +67,7 @@ services:
                 - pgdata2:/sophia/data          
                   # added pgdata volume to separate it from the main container
                 - ./postgresql.conf:/sophia/conf/postgresql.conf
-        shm_size: '1gb'          
+        shm_size: '2gb'          
 
     rserver2:
         image: obiba/opal-rserver:latest
