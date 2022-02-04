@@ -1,23 +1,22 @@
-carl <- Minion$new()
-carl$bindUser('guest', 'guest123', config$loginData)
+test_that("we can wake up a minion, run a remote call and get the result", {
+
+  carl <- Minion$new()
+
+  msg <- jsonlite::serializeJSON(list(func = sessionInfo))
+  carl$reqQ$push('info', msg)
+  out <- carl$blockingRead()
+  expect_true('txtq' %in% names(out$otherPkgs))
+})
+
+test_that("the minion can login", {
+
+  carl <- Minion$new(c('dsSwissKnifeClient', 'dsBaseClient', 'dsQueryLibrary'))
+
+  obj <- carl$bindUser('guest', 'guest123', config$loginData)
+  carl$unbindUser()
+  expect_equal(obj$message, 'opals')
+})
 
 
 
-
-reqQ <- txtq(carl$getReqQueue())
-resQ <- txtq(carl$getResQueue())
-msg <- jsonlite::serializeJSON(list(func = fn, args = list(logindata=lg)))
-fn <- function(logindata){
-  opals <- datashield.login(logindata)
-  assign('opals', opals, envir = .GlobalEnv)
-}
-reqQ$push('login', msg)
-x <- resQ$pop()
-x
-jsonlite::unserializeJSON(x)
-carl$userBind('guest', 'guest123', config$loginData)
-lg <- config$loginData
-lg$user <- 'guest'
-lg$password <- 'guest123'
-msg <- jsonlite::serializeJSON(list(func = ls))
 
