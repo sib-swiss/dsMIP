@@ -17,8 +17,8 @@ getKevin <- function(horde){
   # just scan it, it's small:
   l <- length(horde)
   for(i in 1:l){
-    if(is.null(kevin <- horde[[i]]$getUser())){ # no prior commitments
-      return(kevin)
+    if(is.null(horde[[i]]$getUser())){ # no prior commitments
+      return(horde[[i]])
     }
   }
 }
@@ -28,5 +28,6 @@ getKevin <- function(horde){
 
 minionHorde <- addMinions(config$workers, config$maxWorkers, config$libraries)
 kev <- getKevin(minionHorde)
-str(kev)
-str(minionHorde)
+
+length(minionHorde)
+minionHorde <- addMinions(config$addWorkers, config$maxWorkers, config$libraries, minionHorde)
