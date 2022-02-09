@@ -1,8 +1,10 @@
-#' @import txtq
-Despicable <- R6Class('Despicable',
+
+
+Minion <- R6::R6Class('Minion',
                       private = list(
                         .reqQ = NULL,
-                        .resQ = NULL
+                        .resQ = NULL,
+                        .userName = NULL
                         ),
                      active = list(
                        reqQ = function(value) {
@@ -28,26 +30,86 @@ Despicable <- R6Class('Despicable',
                            if(!is.null(private$resQ)){
                              private$.resQ$destroy
                            }
-                             private$.resQ <- txtq(value)
+                             private$.resQ <- value
+                         }
+                       },
+                       userName = function(value){
+                         if(missing(value)){
+                           private$.userName
+                         } else {
+                           if(is.null(value)){
+                             stop('userName cannot be null.')
+                           }
                          }
                        }
-
                      ),
-
                       public = list(
-                        initialize = function(){
-                          self$startQueues()
-                        },
-                        startQueues = function(reqPath = tempfile(pattern = '', tmpdir = '/tmp'), resPath = tempfile(pattern = '', tmpdir = '/tmp')){
-                          private$.reqQ <- txtq(reqPath)
-                          private$.resQ <- txtq(resPath)
-                        },
-                        stopQueues = function(){
-                          if(!is.null(private$reqQ)){
-                            private$.reqQ$destroy
+                        workerLibs = NULL,
+                        loadLibs = function(libs = NULL){
+                          if(!is.null(libs)){
+                            self$workerLibs <- libs
                           }
-                          if(!is.null(private$resQ)){
-                            private$.resQ$destroy
+                          l <- function(x){
+                            lapply(x, library, character.only = TRUE)
+                          }
+                          self$sendRequest(func = l, args = as.list(self$workerLibs), waitForIt = FALSE)
+                        },
+                        login = function(pass, loginDF, wait = FALSE, timeout = 60){
+                          if(is.null(self$reqQ) || is.null(self$resQ)){
+                            stop('Start the queues first.')
+                          }
+                          minionLogin <- function(usr, pass, logindata){
+                            if(exists('opals', envir = .GlobalEnv)){
+                              try(datashield.logout(opals))
+                            }
+                            logindata$user <- usr
+                            logindata$password <- pass
+                            assign('opals', datashield.login(logins = logindata), envir = .GlobalEnv)
+                            ls(envir = .GlobalEnv)
+                          }
+                          self$sendRequest(minionLogin, list(self$userName, pass, loginDF), 'login', waitForIt = wait, timeout = timeout)
+
+                        },
+                        stopProc = function(wait = TRUE){
+                          self$sendRequest(func = 'STOP', title = 'STOP', waitForIt = wait)
+                        },
+                        initialize = function(user, workerLibraries = NULL, queueDir = NULL){
+                          private$.userName <- user
+                          self$workerLibs <- workerLibraries
+                          if(!is.null(queueDir)){
+                            self$startQueues(queueDir)
+                          }
+                        },
+                        sendRequest = function(func, args = NULL, title = 'func', queue = private$.reqQ, waitForIt = TRUE, timeout = 60, every =1){
+                          mesg <- jsonlite::serializeJSON(list(fun = func, args = args, waitForIt = waitForIt))
+                          queue$push(title, mesg)
+                          if(waitForIt){
+                            # yeah, don't think it will reply right away, start with a break:
+                            Sys.sleep(every)
+                            self$blockingRead(private$.resQ, timeout, every)
+                          }
+                        },
+                        startQueues = function(where = NULL){
+                          if(is.null(private$.userName)){
+                            stop('Please set the userName first.')
+                          }
+                          if(!is.null(self$resQ) && file.exists(self$resQ$path())){
+                              warning(paste0('Queue ', resQ$path(), ' exists.'))
+                          } else {
+                            self$resQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp', where)))
+                          }
+                          if(!is.null(self$reqQ) && file.exists(self$reqQ$path())){
+                            warning(paste0('Queue ', rqsQ$path(), ' exists.'))
+                          } else {
+                            self$reqQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp', where)))
+                          }
+                      },
+                        stopQueues = function(){
+                          if(!is.null(private$.reqQ)){
+                            private$.reqQ$destroy()
+                          }
+                          if(!is.null(private$.resQ)){
+                            private$.resQ$destroy()
                           }
                           private$.resQ <-NULL
                           private$.reqQ <-NULL
@@ -63,7 +125,7 @@ Despicable <- R6Class('Despicable',
                               Sys.sleep(every)
                               next
                             }
-                            queue$clean()
+                            # no response queue cleaning, that's handled by the listener
                             return(list(title = msg$title, message = jsonlite::unserializeJSON(msg$message), time = msg$time))
                           } ## while true
                         } ### blockingRead
@@ -71,191 +133,36 @@ Despicable <- R6Class('Despicable',
 
 )
 
-Minion <- R6Class('Minion',
-                  inherit = Despicable,
-                  private = list(
-                    .workerLibs = c('txtq'),
-                    .currentUser = NULL,
-                    .process = NULL
+HeadMinion <- R6::R6Class('HeadMinion',
+                          inherit = Minion,
+                          private = list(
+                            .process = NULL
+                          ),
+                          public = list(
+                            getProc = function(){
+                              private$.process
+                            },
+                            startProc = function(poll = 1, timeout = 1200){
+                              if(is.null(super$reqQ) || is.null(super$resQ)){
+                                stop('Start the queues first')
+                              }
+                              reqPath <- super$reqQ$path()
+                              resPath <- super$resQ$path()
+                              if(!is.null(private$.process)){
+                                stop(paste0('Process ', private$.process$get_pid(), ' is already attached.'))
+                              }
+                              code <- paste0("dsMIP::listen('",reqPath, "','", resPath,"',", poll, ",", timeout, ")")
+                              private$.process <- processx::process$new('/usr/bin/Rscript',
+                                                                        c('-e',code), cleanup = FALSE, stderr = paste0(resPath, '_err'))
 
-                  ),
-                  active = list(
-                    workerLibs = function(value) {
-                      if (missing(value)) {
-                        private$.workerLibs
-                      } else {
-                        private$.workerLibs <- union(value, 'txtq') # make sure we always have the queue lib
-                      }
-                    }
-                  ),
-
-                  public = list(
-                    initialize = function(workerLibraries = NULL){
-                      self$workerLibs <- workerLibraries
-                      private$.process <- parallel::makePSOCKcluster(1)
-                      self$loadLibs()
-                      self$startQueues()
-                    },
-                    getUser = function(){
-                      private$.currentUser
-                    },
-                    loadLibs = function(){
-                      l <- function(x){
-                        lapply(x, library, character.only = TRUE)
-                      }
-                      parallel::clusterCall(private$.process, l, private$.workerLibs)
-                    },
-                    bindUser = function(userName, pass, loginDF, timeout = 60){
-                      if(is.null(super$reqQ) || is.null(super$resQ)){
-                        self$startQueues()
-                      }
-                      private$.currentUser <- userName
-                      minionLogin <- function(usr, pass, logindata){
-                        if(exists('opals', envir = .GlobalEnv)){
-                          try(datashield.logout(opals))
-                        }
-                        logindata$user <- usr
-                        logindata$password <- pass
-                        assign('opals', datashield.login(logins = logindata), envir = .GlobalEnv)
-                        ls(envir = .GlobalEnv)
-                      }
-                      loginMsg <- jsonlite::serializeJSON(list(func = minionLogin, args = list(userName, pass, loginDF)))
-                      super$reqQ$push('login', loginMsg)
-                      self$blockingRead()
-                    },
-                    startQueues = function(pollInterval = 1){
-                      super$startQueues()
-
-                      listen <- function(poll, reqPath, resPath){  # executed in the cluster node
-                        reqQ <- txtq(reqPath)
-                        resQ <- txtq(resPath)
-                        while(TRUE){
-                          msg <- reqQ$pop(1)
-                          if(nrow(msg) == 0){
-                            Sys.sleep(poll)
-                            next
-                          }
-                          toDo <- jsonlite::unserializeJSON(msg$message)
-                          reqQ$clean()
-                          if(toDo == 'STOP'){
-                            if(exists(opals, envir = .GlobalEnv)){
-                              try(datashield.logout(opals))
-                              try(rm(opals))
+                            },
+                            stopProc = function(){
+                              result <- super$stopProc()
+                              if(grepl('Stopped', result$message)){
+                                private$.process <- NULL
+                              }
+                              invisible(result)
                             }
-                            resQ$push('STOP', jsonlite::serializeJSON('STOPPED'))
-                            return()
-                          }
-                          if(is.null(toDo$args)){
-                            toDo$args <- list()
-                          }
 
-                          tryCatch({
-                            res <- do.call(toDo$fun, toDo$args, envir = .GlobalEnv)
-                            resQ$push('result', jsonlite::serializeJSON(res))
-                          }, error = function(e){
-                            msg <- e$message
-                            if(grepl('datashield.errors', msg)){
-                              msg <- datashield.errors()
-                            }
-                            resQ$push('error', jsonlite::serializeJSON(msg))
-                          })
-                        } ## while loop
-                      } ## listen
-                      # fire and forget :
-                      arglist <- list(pollInterval, super$reqQ$path(), super$resQ$path())
-                      parallel:::sendCall(private$.process[[1]], listen, arglist)
-                    },
-                    stopQueues = function(){
-                      if(!is.null(private$.currentUser)){
-                        self$unbindUser()
-                      }
-                      super$reqQ$push('STOP', jsonlite::serializeJSON('STOP'))
-                      if(super$blockingRead(super$resQ)$message == 'STOPPED'){
-                        super$stopQueues()
-                      }
-                    },
-                    unbindUser = function(){
-                      disconnect <- function(){
-                        datashield.logout(opals)
-                        rm(opals)
-                        ls()
-                      }
-                      if(!is.null(super$reqQ)){
-                        super$reqQ$push('logout', jsonlite::serializeJSON(list(func = disconnect)))
-                      }
-                      private$.currentUser <- NULL
-                    },
-                    finalize = function(){
-                      if(!is.null(private$.reqQ)){
-                        self$stopQueues()
-                      }
-                      parallel::stopCluster(private$.process)
-                    }
-
-                  )
-
-
+                          )
 )
-
-Gru <- R6Class('Gru',
-                     inherit = Despicable,
-                      private = list(
-                        .lReqQ = NULL,
-                        .lResQ = NULL
-                      ),
-                      active = list(
-                        lReqQ = function(value) {
-                          if (missing(value)) {
-                            private$.lReqQ
-                          } else {
-                            if(!is.null(value) && !any(grepl("R6_txtq", class(value)))){
-                              stop('Value must be either a R6_txtq object or NULL.')
-                            }
-                            if(!is.null(private$reqQ)){
-                              private$.lReqQ$destroy
-                            }
-                            private$.lReqQ <- value
-                          }
-                        },
-                        lResQ = function(value) {
-                          if (missing(value)) {
-                            private$.lResQ
-                          } else {
-                            if(!is.null(value) && !any(grepl("R6_txtq", class(value)))){
-                              stop('Value must be either a R6_txtq object or NULL.')
-                            }
-                            if(!is.null(private$resQ)){
-                              private$.lResQ$destroy
-                            }
-                            private$.lResQ <- txtq(value)
-                          }
-                        }
-
-                      ),
-
-                      public = list(
-                      startQueues = function(listenerReqPath = NULL, listenerResPath = NULL, reqPath = NULL, resPath = NULL){
-                          if(!is.null(listenerReqPath) && !is.null(listenerResPath)){
-                            private$.lReqQ <- txtq(listenerReqPath)
-                            private$.lResQ <- txtq(listenerResPath)
-                          }
-                          if(!is.null(reqPath) && !is.null(resPath)){
-                            super$startQueues(reqPath, resPath)
-                          }
-                        },
-                        stopQueues = function(){
-                          # not destroying the listener queues
-                          private$.lResQ <-NULL
-                          private$.lReqQ <-NULL
-                          super$stopQueues()
-                        },
-                        sendRequest = function(func, args = NULL, title = func, queue = super$reqQ){
-                          mesg <- jsonlite::serializeJSON(list(fun = func, args = args))
-                          queue$push(title, mesg)
-                        }
-                    )
-)
-
-
-
-

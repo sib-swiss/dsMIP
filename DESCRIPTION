@@ -12,7 +12,7 @@ Description: Backend for the MIP web application.
 License: GPL
 Encoding: UTF-8
 LazyData: true
-Depends: RestRserve, parallel, R6, digest, dsSwissKnifeClient, dsBaseClient, dsQueryLibrary, txtq
-RoxygenNote: 7.1.1
+Depends: RestRserve, processx, R6, digest, dsSwissKnifeClient, dsBaseClient, dsQueryLibrary, txtq
+RoxygenNote: 7.1.2
 Suggests: 
     testthat

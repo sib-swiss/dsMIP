@@ -1,9 +1,7 @@
 devtools::load_all()
 source('./setup.R')
 
-a <- 1
-minionHerd <- MinionHive$new(config$workers, config$minWorkers, config$maxWorkers, config$addWorkers, c('dsBaseClient', 'dsSwissKnifeClient', 'dsQueryLibrary', 'dsResource'))
-  sessionList <<- list()
+
   makeJson <- function(thisSession, cache = TRUE){
     if(!cache || !file.exists('/tmp/bubbleVars')){
       vars <- thisSession$getVars()

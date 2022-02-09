@@ -8,7 +8,7 @@ test_that("we can wake up a minion, run a remote call and get the result", {
   expect_true('txtq' %in% names(out$otherPkgs))
 })
 
-test_that("the minion can login", {
+test_that("the minion can login/logout", {
 
   carl <- Minion$new(c('dsSwissKnifeClient', 'dsBaseClient', 'dsQueryLibrary'))
 

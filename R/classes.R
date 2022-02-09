@@ -1,4 +1,3 @@
-#' @import RestRserve, digest, dsSwissKnifeClient, dsQueryLibrary, dsBaseclient
 #' @export
 WebSession <- R6::R6Class('WebSession',
                    private = list(
