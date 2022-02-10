@@ -7,12 +7,10 @@
 	],
 
 "workers": 5,
-"maxWorkers": 20,
-"minWorkers": 2,
-"addWorkers": 2,
 "resourceMap":{
 	"server1":["omop_test.db"],
 	"server2":["test.db", "sophia.db"]
 	},
-"mainGroups":["measurement", "person", "observation"]	
+"mainGroups":["measurement", "person", "observation"],
+"dir": "datashield-engine"
 }

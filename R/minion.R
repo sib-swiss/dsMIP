@@ -4,7 +4,9 @@ Minion <- R6::R6Class('Minion',
                       private = list(
                         .reqQ = NULL,
                         .resQ = NULL,
-                        .userName = NULL
+                        .userName = NULL,
+                        .nodeDFs = NULL,
+                        .nodeResources = NULL
                         ),
                      active = list(
                        reqQ = function(value) {
@@ -52,7 +54,7 @@ Minion <- R6::R6Class('Minion',
                           l <- function(x){
                             lapply(x, library, character.only = TRUE)
                           }
-                          self$sendRequest(func = l, args = as.list(self$workerLibs), waitForIt = FALSE)
+                          self$sendRequest(func = l, args = list(self$workerLibs), waitForIt = FALSE)
                         },
                         login = function(pass, loginDF, wait = FALSE, timeout = 60){
                           if(is.null(self$reqQ) || is.null(self$resQ)){
@@ -80,12 +82,13 @@ Minion <- R6::R6Class('Minion',
                             self$startQueues(queueDir)
                           }
                         },
-                        sendRequest = function(func, args = NULL, title = 'func', queue = private$.reqQ, waitForIt = TRUE, timeout = 60, every =1){
+                        sendRequest = function(func, args = NULL, title = 'fun', queue = private$.reqQ, waitForIt = TRUE, timeout = 60, every =1){
                           mesg <- jsonlite::serializeJSON(list(fun = func, args = args, waitForIt = waitForIt))
+                          queue$clean()
                           queue$push(title, mesg)
                           if(waitForIt){
-                            # yeah, don't think it will reply right away, start with a break:
-                            Sys.sleep(every)
+                            # yeah, don't think it will reply straight away, start with a break:
+                            Sys.sleep(every/2)
                             self$blockingRead(private$.resQ, timeout, every)
                           }
                         },
@@ -96,12 +99,12 @@ Minion <- R6::R6Class('Minion',
                           if(!is.null(self$resQ) && file.exists(self$resQ$path())){
                               warning(paste0('Queue ', resQ$path(), ' exists.'))
                           } else {
-                            self$resQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp', where)))
+                            self$resQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp/', where)))
                           }
                           if(!is.null(self$reqQ) && file.exists(self$reqQ$path())){
                             warning(paste0('Queue ', rqsQ$path(), ' exists.'))
                           } else {
-                            self$reqQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp', where)))
+                            self$reqQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp/', where)))
                           }
                       },
                         stopQueues = function(){
@@ -127,6 +130,7 @@ Minion <- R6::R6Class('Minion',
                             }
                             # no response queue cleaning, that's handled by the listener
                             return(list(title = msg$title, message = jsonlite::unserializeJSON(msg$message), time = msg$time))
+
                           } ## while true
                         } ### blockingRead
                       )
@@ -162,7 +166,32 @@ HeadMinion <- R6::R6Class('HeadMinion',
                                 private$.process <- NULL
                               }
                               invisible(result)
+                            },
+                            getVars = function(grps,rs){
+                              ret <- list(person = c('date_of_birth','gender', 'race','ethnicity'))
+                              grps <- setdiff(grps, 'person')
+                              gv <- function(groups, res){
+
+                                sapply(groups, function(x){
+                                  make.names(ds.levels(paste0(x, '$', x, '_name'), datasources = opals)[[1]]$Levels)
+
+                                }, simplify = FALSE)
+
+                              }
+
+                              realGrps <- self$minionCall(gv, list(grps, rs), async = FALSE)
+                              return(realGrps)
+                            },
+
+                            reshapeVars = function(vars, moreVars){
+                              realGrps <- sapply(vars, function(serverlist){
+                                sapply(serverlist, function(srv){
+                                  Reduce(union, srv)
+                                }, simplify = FALSE) %>% Reduce(union, .)
+                              }, simplify = FALSE)
+                              c(moreVars, realGrps)
                             }
+
 
                           )
 )

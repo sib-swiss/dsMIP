@@ -18,10 +18,11 @@ listen <- function(reqPath, resPath, every = 1, timeout = 1200){  # executed in 
         }
         resQ$push('timeout', jsonlite::serializeJSON(errmsg))
         stop(errmsg) # timeout
-      }
+      } # end timeout
       Sys.sleep(every)
       next
     }
+
     toDo <- jsonlite::unserializeJSON(msg$message)
     reqQ$clean()
     if(is.character(toDo$fun) && toDo$fun == 'STOP'){
@@ -39,7 +40,7 @@ listen <- function(reqPath, resPath, every = 1, timeout = 1200){  # executed in 
     if(is.null(toDo$args)){
       toDo$args <- list()
     }
-    resQ$clean() # before sending the response, like that the last response is always in the queue for inspecion by the reaper
+    resQ$clean() # before sending the response, like that the last response is always in the queue for later inspection
     tryCatch({
       res <- do.call(toDo$fun, toDo$args, envir = .GlobalEnv)
       if(!is.null(toDo$waitForIt) && toDo$waitForIt){
@@ -55,6 +56,11 @@ listen <- function(reqPath, resPath, every = 1, timeout = 1200){  # executed in 
         res <- datashield.errors()
       }
       resQ$push('error', jsonlite::serializeJSON(res))
+    }, finally = {
+      st <- as.numeric(Sys.time())    # either way reset the timer
     })
   } ## while loop
 } ## listen
+
+
+
