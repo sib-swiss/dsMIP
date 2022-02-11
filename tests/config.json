@@ -1,6 +1,6 @@
 {
 "port":8888,
-"libraries": ["dsSwissKnifeClient", "dsBaseClient", "dsQueryLibrary"],
+"libraries": ["dsSwissKnifeClient", "dsBaseClient", "dsQueryLibrary", "magrittr"],
 "loginData": [
 	{"server":"server1", "url": "https://localhost:7843", "options":"list(ssl_verifyhost=0,ssl_verifypeer=0)"},
 	{"server":"server2", "url": "https://localhost:8843", "options":"list(ssl_verifyhost=0,ssl_verifypeer=0)"}

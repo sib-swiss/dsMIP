@@ -64,22 +64,31 @@ app$add_get(
       # we have to do the work here.
     bob$sendRequest(remoteLoad, args = list(resourceMap = config$resourceMap, dfs = config$mainGroups), waitForIt = FALSE)
     getVars <- function(grps, rs){
-      ret <- list(person = c('date_of_birth','gender', 'race','ethnicity'))
+      p <- list(person = c('date_of_birth','gender', 'race','ethnicity'))
       grps <- setdiff(grps, 'person')
 
 
-        sapply(grps, function(x){
-          make.names(ds.levels(paste0(x, '$', x, '_name'), datasources = opals))
+        grps <- sapply(grps, function(x){
+          sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
+             y$Levels
+          }, simplify = FALSE) %>% Reduce(union,.) %>% make.names
+         }, simplify = FALSE)
 
-        }, simplify = FALSE)
-
+        grps$person <- p
+        grps
       }
 
 
 
 
     result <- bob$sendRequest(getVars, list(grps = config$mainGroups, rs = config$resourceMap), timeout = 120)
-
+    if(result$title == 'error'){
+      stop(result$message)
+    }
+    bubbleData <- lapply(names(result$message), function(x){
+      list(id = x, label = x, variables =  result$message[[x]], groups = 'cohorts')
+    })
+ #   bubbleData$groups[[length(bubbleData$groups)+1]] <- cohortGroup
     reshapeVars = function(vars, moreVars){
       realGrps <- sapply(vars, function(serverlist){
         sapply(serverlist, function(srv){
@@ -92,7 +101,7 @@ app$add_get(
     #  out <- makeJson(thisSess, cache)
     # launch the widening and join (async)  returning
     #  prepareData(thisSess)
-     res$set_body(jsonlite::toJSON(result$message))
+     res$set_body(jsonlite::toJSON(bubbleData))
 
   }
 )
