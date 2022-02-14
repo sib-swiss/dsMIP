@@ -5,7 +5,6 @@ Minion <- R6::R6Class('Minion',
                         .reqQ = NULL,
                         .resQ = NULL,
                         .userName = NULL,
-                        .nodeDFs = NULL,
                         .nodeResources = NULL
                         ),
                      active = list(
@@ -46,6 +45,7 @@ Minion <- R6::R6Class('Minion',
                        }
                      ),
                       public = list(
+                        getNodeResources = function() private$.nodeResources,
                         workerLibs = NULL,
                         loadLibs = function(libs = NULL){
                           if(!is.null(libs)){
@@ -56,10 +56,11 @@ Minion <- R6::R6Class('Minion',
                           }
                           self$sendRequest(func = l, args = list(self$workerLibs), waitForIt = FALSE)
                         },
-                        login = function(pass, loginDF, wait = FALSE, timeout = 60){
+                        login = function(pass, wait = FALSE, timeout = 60){
                           if(is.null(self$reqQ) || is.null(self$resQ)){
                             stop('Start the queues first.')
                           }
+
                           minionLogin <- function(usr, pass, logindata){
                             if(exists('opals', envir = .GlobalEnv)){
                               try(datashield.logout(opals))
@@ -69,14 +70,24 @@ Minion <- R6::R6Class('Minion',
                             assign('opals', datashield.login(logins = logindata), envir = .GlobalEnv)
                             ls(envir = .GlobalEnv)
                           }
+                          loginDF <- private$.nodeResources[,!(names(private$.nodeResources) %in% 'node')]
                           self$sendRequest(minionLogin, list(self$userName, pass, loginDF), 'login', waitForIt = wait, timeout = timeout)
 
                         },
                         stopProc = function(wait = TRUE){
                           self$sendRequest(func = 'STOP', title = 'STOP', waitForIt = wait)
                         },
-                        initialize = function(user, workerLibraries = NULL, queueDir = NULL){
+                        initialize = function(user, logindata, resources, workerLibraries = NULL, queueDir = NULL){
                           private$.userName <- user
+
+                          private$.nodeResources <- lapply(names(resources), function(x){
+                            line <- logindata[logindata$server == x,,drop = FALSE]
+                            lapply(resources[[x]], function(y){
+                              line$node <- line$server # keep the old server name
+                              line$server <- y
+                              line
+                            })
+                          }) %>% unlist(recursive = FALSE) %>% Reduce(rbind, .)
                           self$workerLibs <- workerLibraries
                           if(!is.null(queueDir)){
                             self$startQueues(queueDir)
@@ -99,12 +110,12 @@ Minion <- R6::R6Class('Minion',
                           if(!is.null(self$resQ) && file.exists(self$resQ$path())){
                               warning(paste0('Queue ', resQ$path(), ' exists.'))
                           } else {
-                            self$resQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp/', where)))
+                            self$resQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0(tempdir(TRUE), '/', where)))
                           }
                           if(!is.null(self$reqQ) && file.exists(self$reqQ$path())){
                             warning(paste0('Queue ', rqsQ$path(), ' exists.'))
                           } else {
-                            self$reqQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0('/tmp/', where)))
+                            self$reqQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0(tempdir(TRUE),'/', where)))
                           }
                       },
                         stopQueues = function(){

@@ -6,16 +6,16 @@ SentryBackend <- R6::R6Class('SentryBackend',
                              private =  list(
                                .pipeFolder = NULL,
                                .validPipes = function(sid, user){
-                                 pipes <- split(sid,digest(user), fixed = TRUE)[[1]]
-                                 pipes <- paste0(private$.pipeFolder, '/', pipes)
+                                 pipes <- split(sid,digest(user))[[1]]
+                                 pipes <- paste0(private$.pipeFolder, '/', user,  pipes)
                                  if(file.exists(pipes[1]) && file.exists(pipes[2])){
                                    return(TRUE)
                                  }
                                  return(FALSE)
                                },
                                 .makeSid = function(reqPath, resPath, usr){
-                                 req <- sub(paste0(private$.pipeFolder), '/*','', reqPath)
-                                 res <- sub(paste0(private$.pipeFolder), '/*','', resPath)
+                                 req <- sub(paste0(private$.pipeFolder, '/', usr),'', reqPath)
+                                 res <- sub(paste0(private$.pipeFolder, '/',usr),'', resPath)
                                  paste0(req, digest(usr),res)
                                }
                              ),
@@ -48,7 +48,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
                                          body = paste(e," --- 401 Invalid Username/Password"),
                                         headers = list("WWW-Authenticate" = "Basic")))
                                      }
-                                     stop(e)
+                                     raise(HTTPError$too_many_requests())
                                    }
                                   )  # bob the minion is ready now
                                  # if no error above, we have a new sid, let everybody know:
@@ -61,7 +61,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
                                  response$set_cookie('sid', mySid)
                                }, # authenticate
                                initialize = function(folder, ...){
-                                 private$.pipeFolder <- folder
+                                 private$.pipeFolder <- paste0(tempdir(TRUE), '/', folder)
                                  super$initialize(...)
                                }
                              )

@@ -1,9 +1,14 @@
 sentry <- function(user , password ){ # must return a head minion
-  carl <- HeadMinion$new(user,config$libraries)
+  pipeDir <- paste0(tempdir(TRUE), '/',config$dir)
+  npipes <- length(grep('err', dir(pipeDir))) # the workers have each their '_err' file
+  if(npipes >= config$workers){
+    stop('Too many connections')
+  }
+  carl <- HeadMinion$new(user, config$loginData, config$resourceMap,  config$libraries)
   carl$startQueues(config$dir)
   carl$startProc()
   carl$loadLibs()
-  logged <- carl$login(password, config$loginData, TRUE)
+  logged <- carl$login(password, TRUE)
 
   if(logged$title == 'error'){
     stop(logged$message)
@@ -43,10 +48,10 @@ app$add_get(
     bob <- req$cookies$minion
     req$cookies$minion <- NULL
     remoteLoad <- function(resourceMap, dfs){
-      sapply(names(resourceMap), function(srv){
-        sapply(resourceMap[[srv]], function(res){
-          datashield.assign.resource(opals[srv], sub('.','_',res, fixed = TRUE), res, async = FALSE)
-        })
+      sapply(resourceMap$server, function(res){
+
+          datashield.assign.resource(opals[res], sub('.','_',res, fixed = TRUE), res, async = FALSE)
+
       }) # resources are in
       # now dfs:
       sapply(dfs, function(x){
@@ -62,13 +67,21 @@ app$add_get(
 
 #    if(!cache){
       # we have to do the work here.
-    bob$sendRequest(remoteLoad, args = list(resourceMap = config$resourceMap, dfs = config$mainGroups), waitForIt = FALSE)
+    bubbleData <- list()
+    bubbleData$datasets <- lapply(config$loginData$server,function(x){
+      list(id = x, label  = x)
+    })
+
+    bubbleData$rootGroup <- list(id = 'root', label = 'Root Group', groups = c('person', 'measurement', 'observation'))
+
+    x <- bob$sendRequest(remoteLoad, args = list(resourceMap = bob$getNodeResources(), dfs = config$mainGroups), waitForIt = TRUE)
+
     getVars <- function(grps, rs){
       p <- list(person = c('date_of_birth','gender', 'race','ethnicity'))
       grps <- setdiff(grps, 'person')
 
 
-        grps <- sapply(grps, function(x){
+              grps <- sapply(grps, function(x){
           sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
              y$Levels
           }, simplify = FALSE) %>% Reduce(union,.) %>% make.names
@@ -76,7 +89,7 @@ app$add_get(
 
         grps$person <- p
         grps
-      }
+      } # getvars
 
 
 
@@ -85,10 +98,10 @@ app$add_get(
     if(result$title == 'error'){
       stop(result$message)
     }
-    bubbleData <- lapply(names(result$message), function(x){
+    bubbleData$groups <- lapply(names(result$message), function(x){
       list(id = x, label = x, variables =  result$message[[x]], groups = 'cohorts')
     })
- #   bubbleData$groups[[length(bubbleData$groups)+1]] <- cohortGroup
+    bubbleData$groups[[length(bubbleData$groups)+1]] <- list(id = 'cohorts', label = 'Cohorts', names(dssSwapKeys(config$resourceMap)) %>%  sub('\\..*','',.)) # without the 'db suffix', function(x){
     reshapeVars = function(vars, moreVars){
       realGrps <- sapply(vars, function(serverlist){
         sapply(serverlist, function(srv){
@@ -97,11 +110,27 @@ app$add_get(
       }, simplify = FALSE)
       c(moreVars, realGrps)
     }
-    #  thisSess <- sessionList[[req$cookies$siid$value]]
-    #  out <- makeJson(thisSess, cache)
+
+
+    # prepareData
+
+    prepareData <- function(){
+      dssPivot(symbol = 'wide_m', what ='measurement', value.var = 'value_as_number',
+                     formula = 'person_id ~ measurement_name',
+                     by.col = 'person_id',
+                     fun.aggregate = function(x)x[1],
+                     datasources = opals)
+      dssJoin(what = c('wide_m', 'person'),
+              symbol = 'working_set',
+              by = 'person_id',
+              datasources = opals)
+      ds.summary('working_set')
+
+    }
+
     # launch the widening and join (async)  returning
-    #  prepareData(thisSess)
-     res$set_body(jsonlite::toJSON(bubbleData))
+    bob$sendRequest(prepareData, waitForIt = FALSE)
+    res$set_body(jsonlite::toJSON(bubbleData))
 
   }
 )
@@ -115,8 +144,10 @@ test_that("Login works", {
     parameters_query = list(nocache = 'true'),
     headers = headers
   )
-  response <<- app$process_request(req)
+  response <- app$process_request(req)
   x <<- jsonlite::fromJSON(response$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(x$groups[[1]]$label[[1]], 'person')
+  expect_equal(x$rootGroup$groups, c("person", "measurement", "observation"))
 })
+
+
 
