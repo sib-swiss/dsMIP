@@ -1,5 +1,6 @@
 
-
+#'@import digest
+#'@export
 Minion <- R6::R6Class('Minion',
                       private = list(
                         .reqQ = NULL,
@@ -45,7 +46,9 @@ Minion <- R6::R6Class('Minion',
                        }
                      ),
                       public = list(
-                        getNodeResources = function() private$.nodeResources,
+                        getNodeResources = function(){
+                          private$.nodeResources
+                          },
                         workerLibs = NULL,
                         loadLibs = function(libs = NULL){
                           if(!is.null(libs)){
@@ -104,18 +107,20 @@ Minion <- R6::R6Class('Minion',
                           }
                         },
                         startQueues = function(where = NULL){
+                          qPath <- paste0(tempdir(TRUE), '/', where,'/',private$.userName, '_', paste0(runif(1), Sys.time()) %>% digest)
                           if(is.null(private$.userName)){
                             stop('Please set the userName first.')
                           }
                           if(!is.null(self$resQ) && file.exists(self$resQ$path())){
                               warning(paste0('Queue ', resQ$path(), ' exists.'))
                           } else {
-                            self$resQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0(tempdir(TRUE), '/', where)))
+                            self$resQ <- txtq( paste0(qPath, '.res'))
                           }
                           if(!is.null(self$reqQ) && file.exists(self$reqQ$path())){
+
                             warning(paste0('Queue ', rqsQ$path(), ' exists.'))
                           } else {
-                            self$reqQ <- txtq(tempfile(pattern = private$.userName, tmpdir = paste0(tempdir(TRUE),'/', where)))
+                            self$reqQ <- txtq(paste0(qPath, '.req'))
                           }
                       },
                         stopQueues = function(){
@@ -147,7 +152,7 @@ Minion <- R6::R6Class('Minion',
                       )
 
 )
-
+#'@export
 HeadMinion <- R6::R6Class('HeadMinion',
                           inherit = Minion,
                           private = list(
@@ -168,7 +173,7 @@ HeadMinion <- R6::R6Class('HeadMinion',
                               }
                               code <- paste0("dsMIP::listen('",reqPath, "','", resPath,"',", poll, ",", timeout, ")")
                               private$.process <- processx::process$new('/usr/bin/Rscript',
-                                                                        c('-e',code), cleanup = FALSE, stderr = paste0(resPath, '_err'))
+                                                                        c('-e',code), cleanup = FALSE, stderr = sub('res', 'err', resPath))
 
                             },
                             stopProc = function(){

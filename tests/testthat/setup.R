@@ -2,7 +2,8 @@ library(jsonlite)
 library(magrittr)
 
 
-stopThem <<- FALSE
+stopThem <<- TRUE
+dir.create(paste0(tempdir(check = TRUE), '/cache'))
 x <- system2('docker', args = c('ps'), stdout = TRUE )
 if(length(grep('docker_nodes_mip',x)) < 6){
   system2('docker-compose', args = c('-f', '../docker_nodes_mip/docker-compose.yml', 'up', '-d'))
