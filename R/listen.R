@@ -24,7 +24,7 @@ listen <- function(reqPath, resPath, every = 1, timeout = 1200){  # executed in 
     }
 
     toDo <- jsonlite::unserializeJSON(msg$message)
-    reqQ$clean()
+    # no reqQ cleaning, that's handled by the minion at the next request
     if(is.character(toDo$fun) && toDo$fun == 'STOP'){
       stopMessage <- 'Stopped'
       if(exists('opals', envir = .GlobalEnv)){

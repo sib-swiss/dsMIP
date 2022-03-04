@@ -20,7 +20,7 @@ services:
         shm_size: '2gb'          
 
     rserver1:
-        image: obiba/opal-rserver:latest
+        image: idragan/rserver:latest
         hostname: rserver1
         environment:
             - JAVA_OPTS=-Xms64m -Xmx512m -XX:+UseG1GC
@@ -70,7 +70,7 @@ services:
         shm_size: '2gb'          
 
     rserver2:
-        image: obiba/opal-rserver:latest
+        image: idragan/rserver:latest
         hostname: rserver2
         environment:
             - JAVA_OPTS=-Xms64m -Xmx512m -XX:+UseG1GC

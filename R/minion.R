@@ -98,7 +98,7 @@ Minion <- R6::R6Class('Minion',
                         },
                         sendRequest = function(func, args = NULL, title = 'fun', queue = private$.reqQ, waitForIt = TRUE, timeout = 60, every =1){
                           mesg <- jsonlite::serializeJSON(list(fun = func, args = args, waitForIt = waitForIt))
-                          queue$clean()
+                          queue$clean() #  we clean the previous requests only before a new one, the last one is always there
                           queue$push(title, mesg)
                           if(waitForIt){
                             # yeah, don't think it will reply straight away, start with a break:
