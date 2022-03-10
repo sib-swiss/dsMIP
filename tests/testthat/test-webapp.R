@@ -125,6 +125,9 @@ app$add_get(
   path = "/getvars",
   FUN = function(req,res){
     cacheDir <- paste0(tempdir(check = TRUE), '/cache')
+    if(!dir.exists(cacheDir)){
+      dir.create(cacheDir)
+    }
     nocache <- NULL
     if('nocache' %in% names(req$parameters_query)){
       nocache <- req$parameters_query[['nocache']] %>% tolower
@@ -339,11 +342,11 @@ test_that(" Endpoint /quantiles works", {
   ### make the request:
   req2 <- Request$new(
     path = "/quantiles",
-    parameters_query = list(var = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'split'),
+    parameters_query = list(var = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'combine'),
     cookies = ck
   )
   response3 <- app$process_request(req2)
   x<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(names(x), c("omop_test.db", "test.db"  ,    "sophia.db"  ))
+  expect_equal(names(x), c('global' ))
 })
 
