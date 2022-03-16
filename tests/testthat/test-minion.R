@@ -42,6 +42,48 @@ test_that("the minion can login/logout", {
 
 })
 
+getVars <- function(grps, rs){
+  p <- c('date_of_birth','gender', 'race','ethnicity')
+  grps <- setdiff(grps, 'person')
+
+
+  grps <- sapply(grps, function(x){
+    sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
+      y$Levels
+    }, simplify = FALSE) %>% Reduce(union,.) %>% make.names
+  }, simplify = FALSE)
+
+  grps$person <- p
+  grps
+} # getvars
 
 
 
+
+result <- carl$sendRequest(getVars, list(grps = config$mainGroups, rs = config$resourceMap), timeout=120)
+carl$sendRequest(function() ds.histogram('working_set$race'))
+
+prepareData <- function(){
+  dssPivot(symbol = 'wide_m', what ='measurement', value.var = 'value_as_number',
+           formula = 'person_id ~ measurement_name',
+           by.col = 'person_id',
+           fun.aggregate = function(x)x[1],
+           datasources = opals)
+  dssJoin(what = c('wide_m', 'person'),
+          symbol = 'working_set',
+          by = 'person_id',
+          datasources = opals)
+  ds.summary('working_set')
+
+}
+
+carl$sendRequest(renameCols)
+
+renameCols <- function(){
+  n <- dssColNames('working_set')
+  sapply(names(n), function(x){
+    cnames <- n[[x]]
+    cnames <- sub('measurement_name.', '', cnames, fixed = TRUE)
+    dssColNames('working_set', cnames, datasources = opals[[x]])
+  })
+}

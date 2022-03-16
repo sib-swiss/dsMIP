@@ -113,6 +113,12 @@ app$add_get(
               symbol = 'working_set',
               by = 'person_id',
               datasources = opals)
+      n <- dssColNames('working_set')
+      sapply(names(n), function(x){
+        cnames <- n[[x]]
+        cnames <- sub('measurement_name.', '', cnames, fixed = TRUE)
+        dssColNames('working_set', cnames, datasources = opals[[x]])
+      })
       ds.summary('working_set')
 
     }
@@ -219,7 +225,7 @@ app$add_get(
       if(!is.null(cohorts)){
         op <-opals[cohorts]
       }
-      var = paste0('working_set$measurement_name.', var)
+      var = paste0('working_set$', var)
 
      ret <-  ds.quantileMean(var,type = type ,datasources = op)
       if(type == 'split'){
@@ -263,7 +269,7 @@ app$add_get(
       if(!is.null(cohorts)){
         op <-opals[cohorts]
       }
-      var = paste0('working_set$measurement_name.', var)
+      var = paste0('working_set$', var)
 
      ret <- ds.histogram(var,type = type ,datasources = op)
      if(type == 'split'){
@@ -329,10 +335,11 @@ test_that(" Endpoint /histogram works", {
   ### make the request:
   req2 <- Request$new(
     path = "/histogram",
-    parameters_query = list(var = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'split'),
+    parameters_query = list(var = "race", type = 'split'),
     cookies = ck
   )
   response3 <- app$process_request(req2)
+
   x<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(names(x), c("omop_test.db", "test.db"  ,    "sophia.db"  ))
 })
