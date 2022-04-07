@@ -43,17 +43,15 @@ test_that("the minion can login/logout", {
 })
 
 getVars <- function(grps, rs){
-  p <- c('date_of_birth','gender', 'race','ethnicity')
+#  p <- c('date_of_birth','gender', 'race','ethnicity')
   grps <- setdiff(grps, 'person')
 
 
   grps <- sapply(grps, function(x){
-    sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
-      y$Levels
-    }, simplify = FALSE) %>% Reduce(union,.) %>% make.names
+    sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), '[[', 'Levels', simplify = FALSE)
   }, simplify = FALSE)
 
-  grps$person <- p
+ # grps$person <- p
   grps
 } # getvars
 
@@ -61,8 +59,14 @@ getVars <- function(grps, rs){
 
 
 result <- carl$sendRequest(getVars, list(grps = config$mainGroups, rs = config$resourceMap), timeout=120)
-carl$sendRequest(function() ds.histogram('working_set$race'))
-
+x <- result$message
+str(result)
+str(x)
+y <- sapply(x, dssSwapKeys, simplify = FALSE)
+str(y$measurement)
+names(y)
+carl$sendRequest(function() ds.table1D('working_set$race'))
+carl$sendRequest(prepareData)
 prepareData <- function(){
   dssPivot(symbol = 'wide_m', what ='measurement', value.var = 'value_as_number',
            formula = 'person_id ~ measurement_name',

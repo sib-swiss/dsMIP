@@ -1,7 +1,4 @@
 
-
-
-
 freePipes <- function(pipeDir, maxWorkers, timeout){
   resPipes <- grep('res', dir(pipeDir), value = TRUE) # the workers have each their '.res' pipe
   npipes <- length(resPipes)
@@ -175,31 +172,45 @@ app$add_get(
 
       grps <- sapply(grps, function(x){
           sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
-             y$Levels
-          }, simplify = FALSE) %>% Reduce(union,.) %>% make.names
+             make.names(y$Levels)
+          }, simplify = FALSE)# %>% Reduce(union,.) %>% make.names
          }, simplify = FALSE)
+        varmap <- sapply(grps, dssSwapKeys, simplify = FALSE)
+        varmap <- sapply(varmap, function(x) {
+                          names(x) <- make.names(names(x))
+                          x
+                          }, simplify = FALSE)
 
-        grps$person <- p
-        grps
+     #   grps <- sapply(grps, function(x)Reduce(union, x) %>% make.names, simplify = FALSE)
+        grps$demographics <- p
+        list(groups = grps, varmap = varmap)
       } # getvars
 
 
 
-
+   assign('kevin', bob, envir = .GlobalEnv)
     result <- bob$sendRequest(getVars, list(grps = config$mainGroups, rs = config$resourceMap), timeout = 120)
     if(result$title == 'error'){
       stop(result$message)
     }
-    bubbleData$groups <- lapply(names(result$message), function(x){
-      list(id = x, label = x, variables =  result$message[[x]])
+
+    bubbleData$groups <- lapply(names(result$message$groups), function(x){
+      list(id = x, label = x, variables =  result$message$groups[[x]])
     })
   #  bubbleData$groups[[length(bubbleData$groups)+1]] <- list(id = 'cohorts', label = 'Cohorts', variables = names(dssSwapKeys(config$resourceMap)) %>%  sub('\\..*','',.)) # without the 'db suffix', function(x){
     jsonBubble <- jsonlite::toJSON(bubbleData)
+    jsonVarMap <- jsonlite::toJSON(result$message$varmap)
     save(jsonBubble, file = paste0(cacheDir, '/bubble.json'))
+    save(jsonVarMap, file = paste0(cacheDir, '/varmap.json'))
  } else {
    load(file = paste0(cacheDir, '/bubble.json'))
+   load(file = paste0(cacheDir, '/varmap.json'))
  }
-
+    setvarmap <- function(x){
+      assign('varmap', x, envir = .GlobalEnv)
+    }
+    varmap <- jsonlite::fromJSON(jsonVarMap)
+    bob$sendRequest(setvarmap, list(varmap), waitForIt = FALSE)
     x <- jsonlite::fromJSON(jsonBubble, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
     jsonBubble <- jsonlite::toJSON(x)
     res$set_body(jsonBubble)
@@ -327,7 +338,7 @@ test_that(" Endpoint /getvars works", {
     cookies = ck
   )
   response2 <- app$process_request(req2)
-  x <- jsonlite::fromJSON(response2$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  x <<- jsonlite::fromJSON(response2$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(x$datasets[[1]]$id, 'omop_test.db')
 })
 
@@ -335,7 +346,7 @@ test_that(" Endpoint /histogram works", {
   ### make the request:
   req2 <- Request$new(
     path = "/histogram",
-    parameters_query = list(var = "race", type = 'split'),
+    parameters_query = list(var = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'split'),
     cookies = ck
   )
   response3 <- app$process_request(req2)
