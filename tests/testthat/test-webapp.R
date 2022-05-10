@@ -312,6 +312,22 @@ app$add_get(
 
   })
 
+
+app$add_get(
+  path = "/logout",
+  FUN = function(req,res){
+
+    mySid <- req$cookies[['sid']]
+    myUser <- req$cookies[['user']]
+
+    kevin <- Minion$new(myUser, config$loginData, config$resourceMap)
+    qPath <- paste0(tempdir(TRUE), '/', config$dir , '/',myUser, '_', mySid)
+    kevin$reqQ <- txtq(paste0(qPath, '.req'))
+    kevin$resQ <- txtq(paste0(qPath, '.res'))
+    ret <- kevin$stopProc()
+    kevin$stopQueues()
+    res$set_body(jsonlite::toJSON(ret, auto_unbox = TRUE))
+  })
 system.time(test_that("Login works", {
   ### make the request:
 
@@ -366,5 +382,16 @@ test_that(" Endpoint /quantiles works", {
   response3 <- app$process_request(req2)
   x<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(names(x), c('global' ))
+})
+
+test_that(" Endpoint /logout works", {
+  ### make the request:
+  req2 <- Request$new(
+    path = "/logout",
+    cookies = ck
+  )
+  response4 <- app$process_request(req2)
+  xx<<- jsonlite::fromJSON(response4$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  expect_equal(xx[['title']], c('STOP' ))
 })
 
