@@ -11,6 +11,6 @@
 	"server1":["omop_test.db"],
 	"server2":["test.db", "sophia.db"]
 	},
-"mainGroups":["measurement", "person", "observation"],
+"mainGroups":["measurement", "person"],
 "dir": "datashield-engine"
 }

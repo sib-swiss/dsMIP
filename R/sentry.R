@@ -15,6 +15,8 @@ SentryBackend <- R6::R6Class('SentryBackend',
                                },
                                 .makeSid = function(reqPath, usr){
                                  trimExpr <- paste0(private$.pipeFolder, '/', usr, '_', '(.+?)\\.req')
+                                # assign('tr', trimExpr, envir  = .GlobalEnv)
+                                # assign('rp', reqPath, envir = .GlobalEnv)
                                  sub(trimExpr,'\\1', reqPath) # keep only the random part
                                 }
                              ),

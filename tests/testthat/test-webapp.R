@@ -163,11 +163,15 @@ app$add_get(
           })
 
 
-    bubbleData$rootGroup <- list(id = 'root', label = 'Root Group', groups = c('person', 'measurement', 'observation'))
+    bubbleData$rootGroup <- list(id = 'root', label = 'Root Group', groups = c('person', 'measurement'))
 
-    getVars <- function(grps, rs){
-      p <- c('date_of_birth','gender', 'race','ethnicity')
+  #  getVars <- function(grps){
+
+      vars <- list(list(id ='date_of_birth', type = 'character'), list(id='gender', type = 'nominal'),
+                   list(id = 'race', type = 'nominal'), list(id ='ethnicity', type = 'nominal'))
       grps <- setdiff(grps, 'person')
+      p <- lapply(vars, function(var) var$id)
+      vars_done <- c()
 
 
       grps <- sapply(grps, function(x){
@@ -180,20 +184,98 @@ app$add_get(
                           names(x) <- make.names(names(x))
                           x
                           }, simplify = FALSE)
+        varmap <- Reduce(c, varmap) # keep only colname->cohorts (not dfname->colname->cohorts)
 
      #   grps <- sapply(grps, function(x)Reduce(union, x) %>% make.names, simplify = FALSE)
+################
+                 for (grp in grps) {
+                     for (db in grp) {
+                         for (var in db) {
+                             # Check if it's already on the list before adding it
+                             if (!(var %in% vars_done)) {
+                                 vars_done <- append(vars_done, var) # Append var to the done list
+                                 vars <- append(vars, list(list(id = var, type = "number")))
+                               }
+                           }
+                       }
+                   }
+
+#        grps <-  sapply(grps, function(x){
+#          sapply(x, function(db){
+#              unname(sapply(db, function(var){
+#                list(id = var, type = 'numeric')
+#              }, simplify = FALSE))
+
+#          }, simplify = FALSE)
+#        }, simplify = FALSE)
         grps$demographics <- p
-        list(groups = grps, varmap = varmap)
+
+        list(groups = grps, varmap = varmap, vars = vars)
       } # getvars
+    getVars <- function(grps){
+
+      vars <- list(list(id ='date_of_birth', type = 'character'), list(id='gender', type = 'nominal'),
+                   list(id = 'race', type = 'nominal'), list(id ='ethnicity', type = 'nominal'))
+      grps <- setdiff(grps, 'person')
+      p <- lapply(vars, function(var) var$id)
+      vars_done <- c()
 
 
+      grps <- sapply(grps, function(x){
+        sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
+          make.names(y$Levels)
+        }, simplify = FALSE)# %>% Reduce(union,.) %>% make.names
+      }, simplify = FALSE)
 
+      varmap <- sapply(grps, dssSwapKeys, simplify = FALSE)
+      varmap <- sapply(varmap, function(x) {
+        #   names(x) <- make.names(names(x))
+        sapply(x, function(y){
+          list(type = 'number', cohorts = y)
+        }, simplify = FALSE)
+        #  x
+      }, simplify = FALSE)
+
+      varmap <- Reduce(c, varmap) # keep only colname->cohorts (not dfname->colname->cohorts)
+      for(demcol in unlist(p)){
+        varmap[[demcol]] <- list(type = 'nominal')
+      }
+
+      #   grps <- sapply(grps, function(x)Reduce(union, x) %>% make.names, simplify = FALSE)
+      ################
+      for (grp in grps) {
+        for (db in grp) {
+          for (var in db) {
+            # Check if it's already on the list before adding it
+            if (!(var %in% vars_done)) {
+              vars_done <- append(vars_done, var) # Append var to the done list
+              vars <- append(vars, list(list(id = var, type = "number")))
+            }
+          }
+        }
+      }
+
+      #        grps <-  sapply(grps, function(x){
+      #          sapply(x, function(db){
+      #              unname(sapply(db, function(var){
+      #                list(id = var, type = 'numeric')
+      #              }, simplify = FALSE))
+
+      #          }, simplify = FALSE)
+      #        }, simplify = FALSE)
+      grps$demographics <- p
+
+      list(groups = grps, varmap = varmap, vars = vars)
+    } # getvars
+
+# debug:
    assign('kevin', bob, envir = .GlobalEnv)
-    result <- bob$sendRequest(getVars, list(grps = config$mainGroups, rs = config$resourceMap), timeout = 120)
+    result <- bob$sendRequest(getVars, list(grps = config$mainGroups), timeout = 120)
     if(result$title == 'error'){
       stop(result$message)
     }
 
+    bubbleData$variables <- result$message$var
     bubbleData$groups <- lapply(names(result$message$groups), function(x){
       list(id = x, label = x, variables =  result$message$groups[[x]])
     })
@@ -212,7 +294,7 @@ app$add_get(
     varmap <- jsonlite::fromJSON(jsonVarMap)
     bob$sendRequest(setvarmap, list(varmap), waitForIt = FALSE)
     x <- jsonlite::fromJSON(jsonBubble, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-    jsonBubble <- jsonlite::toJSON(x)
+    jsonBubble <- jsonlite::toJSON(x, auto_unbox = TRUE)
     res$set_body(jsonBubble)
   }
 )
@@ -233,9 +315,16 @@ app$add_get(
 
     getQuants <- function(var, type , cohorts = NULL){
       op <- opals
-      if(!is.null(cohorts)){
-        op <-opals[cohorts]
+      # only use the cohorts where we know we have this variable
+      # varmap is a global list in forked process
+      if(is.null(cohorts)){
+        cohorts <- varmap[[var]]
+      } else {
+        cohorts <- strsplit(cohorts, ',\\s*')[[1]]
+        cohorts <- intersect(cohorts, varmap[[var]])
       }
+
+      op <-opals[cohorts]
       var = paste0('working_set$', var)
 
      ret <-  ds.quantileMean(var,type = type ,datasources = op)
@@ -277,14 +366,26 @@ app$add_get(
 
    f<- function(var, type , cohorts = NULL){
       op <- opals
-      if(!is.null(cohorts)){
-        op <-opals[cohorts]
+      # only use the cohorts where we know we have this variable
+      # varmap is a global list in forked process
+      if(!is.null(varmap[[var]]$cohorts)){
+        if(is.null(cohorts)){
+          cohorts <- varmap[[var]]$cohorts
+        } else {
+          cohorts <- strsplit(cohorts, ',\\s*')[[1]]
+          cohorts <- intersect(cohorts, varmap[[var]]$cohorts)
+        }
       }
+
+      op <-opals[cohorts]
       var = paste0('working_set$', var)
 
      ret <- ds.histogram(var,type = type ,datasources = op)
      if(type == 'split'){
-      names(ret) <- names(op)
+      if(length(names(op)) == 1){
+        ret <- list(ret)
+      }
+       names(ret) <- names(op)
      } else {
       ret <- list(global = ret)
      }
@@ -298,6 +399,8 @@ app$add_get(
     if(is.null(params$type)){
       params$type <- 'combine'
     }
+    print('HERE')
+    print(params$cohorts)
 
     r <- kevin$sendRequest(f, list(params$var, params$type, params$cohorts))
   #  if(params$type == 'split'){
@@ -362,13 +465,13 @@ test_that(" Endpoint /histogram works", {
   ### make the request:
   req2 <- Request$new(
     path = "/histogram",
-    parameters_query = list(var = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'split'),
+    parameters_query = list(var = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'split', cohorts ="sophia.db"),
     cookies = ck
   )
   response3 <- app$process_request(req2)
 
-  x<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(names(x), c("omop_test.db", "test.db"  ,    "sophia.db"  ))
+  xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  expect_equal(names(xxx), c("omop_test.db", "test.db"  ,    "sophia.db"  ))
 })
 req2$parameters_query
 
@@ -395,3 +498,13 @@ test_that(" Endpoint /logout works", {
   expect_equal(xx[['title']], c('STOP' ))
 })
 
+#grps <- x$groups[1]
+
+#OOO <- sapply(grps, function(x){
+#  x$variables <- sapply(x$variables, function(y){
+#    unname(sapply(y, function(z){
+#      list(id = z, type = 'numeric')
+#    }, simplify = FALSE))
+#  }, simplify = FALSE)
+#  x
+#}, simplify = FALSE)

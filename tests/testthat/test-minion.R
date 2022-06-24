@@ -91,3 +91,9 @@ renameCols <- function(){
     dssColNames('working_set', cnames, datasources = opals[[x]])
   })
 }
+
+f <- function(x){
+  ds.table1D(x)
+}
+
+kevin$sendRequest(f, list('working_set$gender'))
