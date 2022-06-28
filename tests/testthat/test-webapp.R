@@ -165,7 +165,7 @@ app$add_get(
 
     bubbleData$rootGroup <- list(id = 'root', label = 'Root Group', groups = c('person', 'measurement'))
 
-  #  getVars <- function(grps){
+    getVars <- function(grps){
 
       vars <- list(list(id ='date_of_birth', type = 'character'), list(id='gender', type = 'nominal'),
                    list(id = 'race', type = 'nominal'), list(id ='ethnicity', type = 'nominal'))
@@ -317,11 +317,13 @@ app$add_get(
       op <- opals
       # only use the cohorts where we know we have this variable
       # varmap is a global list in forked process
-      if(is.null(cohorts)){
-        cohorts <- varmap[[var]]
-      } else {
-        cohorts <- strsplit(cohorts, ',\\s*')[[1]]
-        cohorts <- intersect(cohorts, varmap[[var]])
+      if(!is.null(varmap[[var]]$cohorts)){
+        if(is.null(cohorts)){
+          cohorts <- varmap[[var]]$cohorts
+        } else {
+          cohorts <- strsplit(cohorts, ',\\s*')[[1]]
+          cohorts <- intersect(cohorts, varmap[[var]]$cohorts)
+        }
       }
 
       op <-opals[cohorts]
@@ -471,7 +473,7 @@ test_that(" Endpoint /histogram works", {
   response3 <- app$process_request(req2)
 
   xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(names(xxx), c("omop_test.db", "test.db"  ,    "sophia.db"  ))
+  expect_equal(names(xxx), c(  "sophia.db"  ))
 })
 req2$parameters_query
 
@@ -483,7 +485,7 @@ test_that(" Endpoint /quantiles works", {
     cookies = ck
   )
   response3 <- app$process_request(req2)
-  x<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  x<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(names(x), c('global' ))
 })
 
