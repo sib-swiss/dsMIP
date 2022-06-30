@@ -165,53 +165,7 @@ app$add_get(
 
     bubbleData$rootGroup <- list(id = 'root', label = 'Root Group', groups = c('person', 'measurement'))
 
-    getVars <- function(grps){
 
-      vars <- list(list(id ='date_of_birth', type = 'character'), list(id='gender', type = 'nominal'),
-                   list(id = 'race', type = 'nominal'), list(id ='ethnicity', type = 'nominal'))
-      grps <- setdiff(grps, 'person')
-      p <- lapply(vars, function(var) var$id)
-      vars_done <- c()
-
-
-      grps <- sapply(grps, function(x){
-          sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
-             make.names(y$Levels)
-          }, simplify = FALSE)# %>% Reduce(union,.) %>% make.names
-         }, simplify = FALSE)
-        varmap <- sapply(grps, dssSwapKeys, simplify = FALSE)
-        varmap <- sapply(varmap, function(x) {
-                          names(x) <- make.names(names(x))
-                          x
-                          }, simplify = FALSE)
-        varmap <- Reduce(c, varmap) # keep only colname->cohorts (not dfname->colname->cohorts)
-
-     #   grps <- sapply(grps, function(x)Reduce(union, x) %>% make.names, simplify = FALSE)
-################
-                 for (grp in grps) {
-                     for (db in grp) {
-                         for (var in db) {
-                             # Check if it's already on the list before adding it
-                             if (!(var %in% vars_done)) {
-                                 vars_done <- append(vars_done, var) # Append var to the done list
-                                 vars <- append(vars, list(list(id = var, type = "number")))
-                               }
-                           }
-                       }
-                   }
-
-#        grps <-  sapply(grps, function(x){
-#          sapply(x, function(db){
-#              unname(sapply(db, function(var){
-#                list(id = var, type = 'numeric')
-#              }, simplify = FALSE))
-
-#          }, simplify = FALSE)
-#        }, simplify = FALSE)
-        grps$demographics <- p
-
-        list(groups = grps, varmap = varmap, vars = vars)
-      } # getvars
     getVars <- function(grps){
 
       vars <- list(list(id ='date_of_birth', type = 'character'), list(id='gender', type = 'nominal'),
@@ -224,24 +178,27 @@ app$add_get(
       grps <- sapply(grps, function(x){
         sapply(ds.levels(paste0(x, '$', x, '_name'), datasources = opals), function(y){
           make.names(y$Levels)
-        }, simplify = FALSE)# %>% Reduce(union,.) %>% make.names
+        }, simplify = FALSE)
       }, simplify = FALSE)
 
       varmap <- sapply(grps, dssSwapKeys, simplify = FALSE)
       varmap <- sapply(varmap, function(x) {
-        #   names(x) <- make.names(names(x))
+
         sapply(x, function(y){
           list(type = 'number', cohorts = y)
         }, simplify = FALSE)
-        #  x
+
       }, simplify = FALSE)
 
       varmap <- Reduce(c, varmap) # keep only colname->cohorts (not dfname->colname->cohorts)
-      for(demcol in unlist(p)){
-        varmap[[demcol]] <- list(type = 'nominal')
-      }
+      person_cols <- ds.colnames('person', datasources = opals) %>% dssSwapKeys()
+      person_cols <- person_cols[unlist(p)]
 
-      #   grps <- sapply(grps, function(x)Reduce(union, x) %>% make.names, simplify = FALSE)
+      varmap <- c(varmap, sapply(person_cols, function(x){   # add the person variables (all nominal)
+        list(cohorts = x, type = 'nominal')
+      }, simplify = FALSE))
+
+
       ################
       for (grp in grps) {
         for (db in grp) {
@@ -317,6 +274,7 @@ app$add_get(
       op <- opals
       # only use the cohorts where we know we have this variable
       # varmap is a global list in forked process
+
       if(!is.null(varmap[[var]]$cohorts)){
         if(is.null(cohorts)){
           cohorts <- varmap[[var]]$cohorts
@@ -327,17 +285,32 @@ app$add_get(
       }
 
       op <-opals[cohorts]
-      var = paste0('working_set$', var)
 
-     ret <-  ds.quantileMean(var,type = type ,datasources = op)
-      if(type == 'split'){
-        names(ret) <- names(op)
-        ret <- sapply(ret ,as.list, simplify = FALSE)
+      if(varmap[[var]]$type == 'number'){
+        var = paste0('working_set$', var)
+
+        ret <-  ds.quantileMean(var,type = type ,datasources = op)
+        if(type == 'split'){
+          if(length(names(op)) == 1){
+            ret <- list(ret)
+          }
+          names(ret) <- names(op)
+        } else {
+          ret <- list(global = ret)
+        }
+
+      } else if(varmap[[var]]$type == 'nominal'){
+        var = paste0('working_set$', var)
+        ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
+        # unlist, list to handle global/vs split
+        if(is.null(names(ret))){
+          names(ret) <- 'global'
+        }
+
       } else {
-        ret <- list(global = as.list(ret))
+        stop(paste0('Not implemented for type ',varmap[[var]]$type ))
       }
       ret
-
     }
 
     params <- req$parameters_query
@@ -380,16 +353,29 @@ app$add_get(
       }
 
       op <-opals[cohorts]
-      var = paste0('working_set$', var)
 
-     ret <- ds.histogram(var,type = type ,datasources = op)
-     if(type == 'split'){
-      if(length(names(op)) == 1){
-        ret <- list(ret)
+     if(varmap[[var]]$type == 'number'){
+       var = paste0('working_set$', var)
+      ret <- ds.histogram(var,type = type ,datasources = op)
+      if(type == 'split'){
+        if(length(names(op)) == 1){
+          ret <- list(ret)
+        }
+        names(ret) <- names(op)
+      } else {
+        ret <- list(global = ret)
       }
-       names(ret) <- names(op)
+
+     } else if(varmap[[var]]$type == 'nominal'){
+       var = paste0('working_set$', var)
+       ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
+       # unlist, list to handle global/vs split
+       if(is.null(names(ret))){
+         names(ret) <- 'global'
+       }
+
      } else {
-      ret <- list(global = ret)
+       stop(paste0('Not implemented for type ',varmap[[var]]$type ))
      }
      ret
     }
@@ -401,8 +387,6 @@ app$add_get(
     if(is.null(params$type)){
       params$type <- 'combine'
     }
-    print('HERE')
-    print(params$cohorts)
 
     r <- kevin$sendRequest(f, list(params$var, params$type, params$cohorts))
   #  if(params$type == 'split'){
@@ -475,7 +459,21 @@ test_that(" Endpoint /histogram works", {
   xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(names(xxx), c(  "sophia.db"  ))
 })
-req2$parameters_query
+
+test_that(" Endpoint /histogram works for factors", {
+  ### make the request:
+  req2 <- Request$new(
+    path = "/histogram",
+    parameters_query = list(var = "ethnicity", type = 'split', cohorts ="sophia.db"),
+    cookies = ck
+  )
+  response3 <- app$process_request(req2)
+
+  xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  expect_equal(names(xxx), c(  "sophia.db"  ))
+})
+
+
 
 test_that(" Endpoint /quantiles works", {
   ### make the request:
@@ -489,24 +487,75 @@ test_that(" Endpoint /quantiles works", {
   expect_equal(names(x), c('global' ))
 })
 
-test_that(" Endpoint /logout works", {
+test_that(" Endpoint /quantiles works for factors", {
   ### make the request:
   req2 <- Request$new(
-    path = "/logout",
+    path = "/quantiles",
+    parameters_query = list(var = "ethnicity", type = 'combine', cohorts = 'sophia.db'),
     cookies = ck
   )
-  response4 <- app$process_request(req2)
-  xx<<- jsonlite::fromJSON(response4$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(xx[['title']], c('STOP' ))
+  response3 <- app$process_request(req2)
+  x<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  expect_equal(names(x), c('global' ))
 })
 
-#grps <- x$groups[1]
 
-#OOO <- sapply(grps, function(x){
-#  x$variables <- sapply(x$variables, function(y){
-#    unname(sapply(y, function(z){
-#      list(id = z, type = 'numeric')
-#    }, simplify = FALSE))
-#  }, simplify = FALSE)
-#  x
-#}, simplify = FALSE)
+
+#test_that(" Endpoint /logout works", {
+  ### make the request:
+#  req2 <- Request$new(
+#    path = "/logout",
+#    cookies = ck
+#  )
+#  response4 <- app$process_request(req2)
+#  xx<<- jsonlite::fromJSON(response4$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+#  expect_equal(xx[['title']], c('STOP' ))
+#})
+
+
+ff <- function() varmap
+ff <- function() ds.colnames('working_set')
+ff <- function() ds.table1D('working_set$ethnicity', type ='split', warningMessage = FALSE, datasources = opals['sophia.db', 'omop_test.db'])
+ff<- function(var, type , cohorts = NULL){
+  op <- opals
+  # only use the cohorts where we know we have this variable
+  # varmap is a global list in forked process
+
+  if(!is.null(varmap[[var]]$cohorts)){
+    if(is.null(cohorts)){
+      cohorts <- varmap[[var]]$cohorts
+    } else {
+      cohorts <- strsplit(cohorts, ',\\s*')[[1]]
+      cohorts <- intersect(cohorts, varmap[[var]]$cohorts)
+    }
+  }
+
+  op <-opals[cohorts]
+
+  if(varmap[[var]]$type == 'number'){
+    var = paste0('working_set$', var)
+
+    ret <-  ds.quantileMean(var,type = type ,datasources = op)
+    if(type == 'split'){
+      if(length(names(op)) == 1){
+        ret <- list(ret)
+      }
+      names(ret) <- names(op)
+    } else {
+      ret <- list(global = ret)
+    }
+
+  } else if(varmap[[var]]$type == 'nominal'){
+    var = paste0('working_set$', var)
+
+    ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
+
+  } else {
+    stop(paste0('Not implemented for type ',varmap[[var]]$type ))
+  }
+ret
+}
+ff <- function() ds.colnames('person') %>% dssSwapKeys()
+
+x <-kevin$sendRequest(ff)
+x <- kevin$sendRequest(ff, list("ethnicity", type = 'combine', cohorts ="sophia.db, test.db"))$message
