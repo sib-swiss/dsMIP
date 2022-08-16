@@ -1,4 +1,5 @@
 
+
 freePipes <- function(pipeDir, maxWorkers, timeout){
   resPipes <- grep('res', dir(pipeDir), value = TRUE) # the workers have each their '.res' pipe
   npipes <- length(resPipes)
@@ -46,6 +47,65 @@ freePipes <- function(pipeDir, maxWorkers, timeout){
   return(found)
 }
 
+applyFunc <- function(func, var, type , cohorts = NULL){
+  op <- opals
+  # only use the cohorts where we know we have this variable
+  # varmap is a global list in the forked process
+  if(!is.null(varmap[[var]]$cohorts)){
+    if(is.null(cohorts)){
+      cohorts <- varmap[[var]]$cohorts
+    } else {
+      cohorts <- strsplit(cohorts, ',\\s*')[[1]]
+      cohorts <- intersect(cohorts, varmap[[var]]$cohorts)
+    }
+  }
+
+  op <-opals[cohorts]
+
+  if(varmap[[var]]$type == 'number'){
+    var = paste0('working_set$', var)
+    ret <- do.call(func, list(var,type = type ,datasources = op))
+    if(type == 'split'){
+      if(length(names(op)) == 1){
+        ret <- list(ret)
+      }
+      names(ret) <- names(op)
+    } else {
+      ret <- list(global = ret)
+    }
+
+  } else if(varmap[[var]]$type == 'nominal'){
+    var = paste0('working_set$', var)
+   # ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
+    ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts
+    if(!is.list(ret)){
+      ret <- list(global = ret)
+    }
+    ret <- sapply(ret, function(x){
+      q <- list()
+      q[dimnames(x)[[1]]] <- x[,1]
+      q
+    }, simplify = FALSE)
+
+
+  } else {
+    stop(paste0('Not implemented for type ',varmap[[var]]$type ))
+  }
+  ret
+}
+
+runAlgo <- function(algoName, paramList){
+  algos <- list('linear-regression' = list(ds.glm,
+                                          family = 'gaussian'
+                                        ),
+                'logistic-regression' = list(ds.glm,
+                                           family = 'binomial'
+                                        )
+                )
+  paramList$datasources <- opals[paramList$datasources]
+  eval(as.call(c(algos[[algoName]], paramList)))
+}
+
 sentry <- function(user , password ){ # must return a head minion
   if(!freePipes(paste0(tempdir(TRUE), '/',config$dir), config$workers, 60)){
     stop("Too many connections")
@@ -67,6 +127,7 @@ sentry <- function(user , password ){ # must return a head minion
 
   return(carl)
 }
+
 
 sentryBackend <- SentryBackend$new(folder = config$dir, FUN = sentry)
 
@@ -212,14 +273,6 @@ app$add_get(
         }
       }
 
-      #        grps <-  sapply(grps, function(x){
-      #          sapply(x, function(db){
-      #              unname(sapply(db, function(var){
-      #                list(id = var, type = 'numeric')
-      #              }, simplify = FALSE))
-
-      #          }, simplify = FALSE)
-      #        }, simplify = FALSE)
       grps$demographics <- p
 
       list(groups = grps, varmap = varmap, vars = vars)
@@ -270,49 +323,6 @@ app$add_get(
     kevin$reqQ <- txtq(paste0(qPath, '.req'))
     kevin$resQ <- txtq(paste0(qPath, '.res'))
 
-    getQuants <- function(var, type , cohorts = NULL){
-      op <- opals
-      # only use the cohorts where we know we have this variable
-      # varmap is a global list in forked process
-
-      if(!is.null(varmap[[var]]$cohorts)){
-        if(is.null(cohorts)){
-          cohorts <- varmap[[var]]$cohorts
-        } else {
-          cohorts <- strsplit(cohorts, ',\\s*')[[1]]
-          cohorts <- intersect(cohorts, varmap[[var]]$cohorts)
-        }
-      }
-
-      op <-opals[cohorts]
-
-      if(varmap[[var]]$type == 'number'){
-        var = paste0('working_set$', var)
-
-        ret <-  ds.quantileMean(var,type = type ,datasources = op)
-        if(type == 'split'){
-          if(length(names(op)) == 1){
-            ret <- list(ret)
-          }
-          names(ret) <- names(op)
-        } else {
-          ret <- list(global = ret)
-        }
-
-      } else if(varmap[[var]]$type == 'nominal'){
-        var = paste0('working_set$', var)
-        ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
-        # unlist, list to handle global/vs split
-        if(is.null(names(ret))){
-          names(ret) <- 'global'
-        }
-
-      } else {
-        stop(paste0('Not implemented for type ',varmap[[var]]$type ))
-      }
-      ret
-    }
-
     params <- req$parameters_query
     if(!('var' %in% names(params))){
       stop('var is mandatory')
@@ -321,7 +331,7 @@ app$add_get(
       params$type <- 'combine'
     }
 
-    r<- kevin$sendRequest(getQuants, list(params$var, params$type, params$cohorts))
+    r<- kevin$sendRequest(applyFunc, list('ds.quantileMean', params$var, params$type, params$cohorts))
 
     res$set_body(jsonlite::toJSON(r$message, auto_unbox = TRUE))
 
@@ -339,47 +349,6 @@ app$add_get(
     kevin$reqQ <- txtq(paste0(qPath, '.req'))
     kevin$resQ <- txtq(paste0(qPath, '.res'))
 
-   f<- function(var, type , cohorts = NULL){
-      op <- opals
-      # only use the cohorts where we know we have this variable
-      # varmap is a global list in forked process
-      if(!is.null(varmap[[var]]$cohorts)){
-        if(is.null(cohorts)){
-          cohorts <- varmap[[var]]$cohorts
-        } else {
-          cohorts <- strsplit(cohorts, ',\\s*')[[1]]
-          cohorts <- intersect(cohorts, varmap[[var]]$cohorts)
-        }
-      }
-
-      op <-opals[cohorts]
-
-     if(varmap[[var]]$type == 'number'){
-       var = paste0('working_set$', var)
-      ret <- ds.histogram(var,type = type ,datasources = op)
-      if(type == 'split'){
-        if(length(names(op)) == 1){
-          ret <- list(ret)
-        }
-        names(ret) <- names(op)
-      } else {
-        ret <- list(global = ret)
-      }
-
-     } else if(varmap[[var]]$type == 'nominal'){
-       var = paste0('working_set$', var)
-       ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
-       # unlist, list to handle global/vs split
-       if(is.null(names(ret))){
-         names(ret) <- 'global'
-       }
-
-     } else {
-       stop(paste0('Not implemented for type ',varmap[[var]]$type ))
-     }
-     ret
-    }
-
     params <- req$parameters_query
     if(!('var' %in% names(params))){
       stop('var is mandatory')
@@ -388,7 +357,8 @@ app$add_get(
       params$type <- 'combine'
     }
 
-    r <- kevin$sendRequest(f, list(params$var, params$type, params$cohorts))
+  #  r <- kevin$sendRequest(f, list(params$var, params$type, params$cohorts))
+    r <- kevin$sendRequest(applyFunc, list('ds.histogram', params$var, params$type, params$cohorts))
   #  if(params$type == 'split'){
     if(r$title == 'result'){
       out <- sapply(r$message, unclass, simplify = FALSE)
@@ -417,6 +387,39 @@ app$add_get(
     kevin$stopQueues()
     res$set_body(jsonlite::toJSON(ret, auto_unbox = TRUE))
   })
+
+
+app$add_post(
+  path = "/runAlgorithm",
+  match = "exact",
+  FUN = function(req, res) {
+    mySid <- req$cookies[['sid']]
+    myUser <- req$cookies[['user']]
+    stuart <- Minion$new(myUser, config$loginData, config$resourceMap)
+    qPath <- paste0(tempdir(TRUE), '/', config$dir , '/',myUser, '_', mySid)
+    stuart$reqQ <- txtq(paste0(qPath, '.req'))
+    stuart$resQ <- txtq(paste0(qPath, '.res'))
+    experiment <- jsonlite::fromJSON(req$body)
+
+    datasets <- experiment$datasets # array of string (dataset ids)
+
+    co_var <- experiment$coVariable # should be only one
+    algorithm_id <- experiment$algorithm$id # string
+   # params <- experiment$algorithm$params # list of {id='example', value='example'}
+    vars<- paste0('working_set$', experiment$variables)
+    vars <- paste(vars, collapse=' + ')
+    formula <- paste0('working_set$',co_var, ' ~ ', vars)
+    algoArgs <- list(datasources = experiment$datasets, formula = formula)
+
+   model <- stuart$sendRequest(runAlgo, list(algorithm_id, algoArgs))
+
+   # res$set_body(jsonlite::toJSON(model, auto_unbox = TRUE))
+    res$set_body(model)
+  }
+)
+
+
+
 system.time(test_that("Login works", {
   ### make the request:
 
@@ -464,13 +467,13 @@ test_that(" Endpoint /histogram works for factors", {
   ### make the request:
   req2 <- Request$new(
     path = "/histogram",
-    parameters_query = list(var = "ethnicity", type = 'split', cohorts ="sophia.db"),
+    parameters_query = list(var = "ethnicity", type = 'split', cohorts ="sophia.db, test.db"),
     cookies = ck
   )
   response3 <- app$process_request(req2)
 
   xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(names(xxx), c(  "sophia.db"  ))
+  expect_equal(names(xxx), c(  "sophia.db" , 'test.db' ))
 })
 
 
@@ -500,62 +503,48 @@ test_that(" Endpoint /quantiles works for factors", {
 })
 
 
-
-#test_that(" Endpoint /logout works", {
+test_that(" Endpoint /runAlgorithm works", {
   ### make the request:
-#  req2 <- Request$new(
-#    path = "/logout",
-#    cookies = ck
-#  )
-#  response4 <- app$process_request(req2)
-#  xx<<- jsonlite::fromJSON(response4$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-#  expect_equal(xx[['title']], c('STOP' ))
-#})
+  req3 <- Request$new(
+    path = "/runAlgorithm",
+
+    body = jsonlite::toJSON(list(coVariable = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma",
+                            variables = list("Urea.nitrogen..Mass.volume..in.Serum.or.Plasma" ),
+                            algorithm = list(id = 'linear-regression'),
+                            datasets ="sophia.db")),
+    method = 'POST',
+    cookies = ck,
+    content_type = 'application/json'
+  )
+  response3 <- app$process_request(req3)
+
+  xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  expect_equal(names(xxx), c(  "sophia.db"  ))
+})
 
 
-ff <- function() varmap
-ff <- function() ds.colnames('working_set')
-ff <- function() ds.table1D('working_set$ethnicity', type ='split', warningMessage = FALSE, datasources = opals['sophia.db', 'omop_test.db'])
-ff<- function(var, type , cohorts = NULL){
-  op <- opals
-  # only use the cohorts where we know we have this variable
-  # varmap is a global list in forked process
+test_that(" Endpoint /logout works", {
+  ### make the request:
+  req2 <- Request$new(
+    path = "/logout",
+    cookies = ck
+  )
+  response4 <- app$process_request(req2)
+  xx<<- jsonlite::fromJSON(response4$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  expect_equal(xx[['title']], c('STOP' ))
+})
 
-  if(!is.null(varmap[[var]]$cohorts)){
-    if(is.null(cohorts)){
-      cohorts <- varmap[[var]]$cohorts
-    } else {
-      cohorts <- strsplit(cohorts, ',\\s*')[[1]]
-      cohorts <- intersect(cohorts, varmap[[var]]$cohorts)
-    }
-  }
 
-  op <-opals[cohorts]
 
-  if(varmap[[var]]$type == 'number'){
-    var = paste0('working_set$', var)
 
-    ret <-  ds.quantileMean(var,type = type ,datasources = op)
-    if(type == 'split'){
-      if(length(names(op)) == 1){
-        ret <- list(ret)
-      }
-      names(ret) <- names(op)
-    } else {
-      ret <- list(global = ret)
-    }
 
-  } else if(varmap[[var]]$type == 'nominal'){
-    var = paste0('working_set$', var)
+#x <- kevin$sendRequest(applyFunc, list('ds.histogram',"Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'split', cohorts ="sophia.db"))$message
+#x <- kevin$sendRequest(applyFunc, list(ds.quantileMean,"Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'combine', cohorts ="sophia.db, test.db"))$message
 
-    ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
+f <- function(){
+#dssColNames('working_set')
+  ls(envir = .GlobalEnv)
 
-  } else {
-    stop(paste0('Not implemented for type ',varmap[[var]]$type ))
-  }
-ret
 }
-ff <- function() ds.colnames('person') %>% dssSwapKeys()
+kevin$sendRequest(f,timeout = 180)
 
-x <-kevin$sendRequest(ff)
-x <- kevin$sendRequest(ff, list("ethnicity", type = 'combine', cohorts ="sophia.db, test.db"))$message

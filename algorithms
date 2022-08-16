@@ -1,0 +1,49 @@
+[
+      {
+        id: 'linear-regression',
+        label: 'Linear Regression',
+        description:
+          'Linear regression analysis is a method of statistical analysis that fits a linear function in order to predict the value of a covariate as a function of one or more variables. Linear regression is a simple model that is easy to understand and interpret.',
+        variable: {
+          isRequired: true,
+          allowedTypes: ['number'],
+          hasMultiple: false,
+        },
+        coVariable: {
+          isRequired: true,
+          allowedTypes: ['number'],
+          hasMultiple: true,
+        },
+      },
+      {
+        id: 'logistic-regression',
+        label: 'Logistic Regression',
+        description:
+          'Logistic regression is a statistical method for predicting the probability of a binary event.',
+        variable: {
+          isRequired: true,
+          allowedTypes: ['nominal'],
+          hasMultiple: false,
+          hint: 'A binary event to predict',
+        },
+        coVariable: {
+          isRequired: true,
+          allowedTypes: ['number'],
+          hasMultiple: true,
+        },
+        parameters: [
+          {
+            name: 'pos-level',
+            label: 'Positive level',
+            linkedTo: AllowedLink.VARIABLE,
+            isRequired: true,
+          },
+          {
+            name: 'neg-level',
+            label: 'Negative level',
+            linkedTo: AllowedLink.VARIABLE,
+            isRequired: true,
+          },
+        ],
+      },
+    ];
