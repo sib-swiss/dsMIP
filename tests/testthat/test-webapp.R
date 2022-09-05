@@ -1,4 +1,244 @@
 
+combinedHeatmap <- function (x = NULL, y = NULL,  show = "all",
+          numints = 20, method = "smallCellsRule", k = 3, noise = 0.25,
+          cohorts = NULL) {
+  for (var in c(x,y)){
+    if(varmap[[var]]$type != 'number'){
+      # nothing to do here:
+      return(NULL)
+    }
+  }
+
+  cohorts <- strsplit(cohorts, ',\\s*')[[1]]
+
+  datasources <- Reduce(function(x,y){ # keep only the common datasources
+    if(is.null(x)){
+      return(y)
+    } else if(is.null(y)){
+      return(x)
+    } else {
+      return(intersect(x,y))
+    }
+  }, list(cohorts, varmap[[x]]$cohorts, varmap[[y]]$cohorts))
+
+
+  type = 'combine'
+  if (is.null(datasources)) {
+    datasources <- datashield.connections_find()
+  }
+  if (is.null(x)) {
+    stop("x=NULL. Please provide the names of the 1st numeric vector!",
+         call. = FALSE)
+  }
+  if (is.null(y)) {
+    stop("y=NULL. Please provide the names of the 2nd numeric vector!",
+         call. = FALSE)
+  }
+  if (method != "smallCellsRule" & method != "deterministic" &
+      method != "probabilistic") {
+    stop("Function argument \"method\" has to be either \"smallCellsRule\" or \"deterministic\" or \"probabilistic\"",
+         call. = FALSE)
+  }
+  xnames <- extract(x)
+  x.lab <- xnames[[length(xnames)]]
+  ynames <- extract(y)
+  y.lab <- ynames[[length(ynames)]]
+  stdnames <- names(datasources)
+  num.sources <- length(datasources)
+  if (method == "deterministic") {
+    method.indicator <- 1
+    cally <- paste0("heatmapPlotDS(", x, ",", y, ",", k,
+                    ",", noise, ",", method.indicator, ")")
+    anonymous.data <- DSI::datashield.aggregate(datasources,
+                                                cally)
+    pooled.points.x <- c()
+    pooled.points.y <- c()
+    for (i in 1:num.sources) {
+      pooled.points.x[[i]] <- anonymous.data[[i]][[1]]
+      pooled.points.y[[i]] <- anonymous.data[[i]][[2]]
+    }
+  }
+  if (method == "probabilistic") {
+    method.indicator <- 2
+    cally <- paste0("heatmapPlotDS(", x, ",", y, ",", k,
+                    ",", noise, ",", method.indicator, ")")
+    anonymous.data <- DSI::datashield.aggregate(datasources,
+                                                cally)
+    pooled.points.x <- c()
+    pooled.points.y <- c()
+    for (i in 1:num.sources) {
+      pooled.points.x[[i]] <- anonymous.data[[i]][[1]]
+      pooled.points.y[[i]] <- anonymous.data[[i]][[2]]
+    }
+  }
+
+    if (method == "smallCellsRule") {
+      cally <- paste("rangeDS(", x, ")")
+      x.ranges <- DSI::datashield.aggregate(datasources,
+                                            as.symbol(cally))
+      cally <- paste("rangeDS(", y, ")")
+      y.ranges <- DSI::datashield.aggregate(datasources,
+                                            as.symbol(cally))
+      x.minrs <- c()
+      x.maxrs <- c()
+      y.minrs <- c()
+      y.maxrs <- c()
+      for (i in 1:num.sources) {
+        x.minrs <- append(x.minrs, x.ranges[[i]][1])
+        x.maxrs <- append(x.maxrs, x.ranges[[i]][2])
+        y.minrs <- append(y.minrs, y.ranges[[i]][1])
+        y.maxrs <- append(y.maxrs, y.ranges[[i]][2])
+      }
+      x.range.arg <- c(min(x.minrs), max(x.maxrs))
+      y.range.arg <- c(min(y.minrs), max(y.maxrs))
+      x.global.min <- x.range.arg[1]
+      x.global.max <- x.range.arg[2]
+      y.global.min <- y.range.arg[1]
+      y.global.max <- y.range.arg[2]
+      cally <- paste0("densityGridDS(", x, ",", y, ",",
+                      limits = T, ",", x.global.min, ",", x.global.max,
+                      ",", y.global.min, ",", y.global.max, ",", numints,
+                      ")")
+      grid.density.obj <- DSI::datashield.aggregate(datasources,
+                                                    as.symbol(cally))
+      numcol <- dim(grid.density.obj[[1]])[2]
+      for (i in 1:num.sources) {
+        message(stdnames[i], ": ", names(dimnames(grid.density.obj[[i]])[2]))
+      }
+      Global.grid.density <- matrix(0, dim(grid.density.obj[[1]])[1],
+                                    numcol - 2)
+      for (i in 1:num.sources) {
+        Global.grid.density <- Global.grid.density +
+          grid.density.obj[[i]][, 1:(numcol - 2)]
+      }
+    }
+    else {
+      if (method == "deterministic" | method == "probabilistic") {
+        xvect <- unlist(pooled.points.x)
+        yvect <- unlist(pooled.points.y)
+        y.min <- min(yvect)
+        x.min <- min(xvect)
+        y.max <- max(yvect)
+        x.max <- max(xvect)
+        y.range <- y.max - y.min
+        x.range <- x.max - x.min
+        y.interval <- y.range/numints
+        x.interval <- x.range/numints
+        y.cuts <- seq(from = y.min, to = y.max, by = y.interval)
+        y.mids <- seq(from = (y.min + y.interval/2),
+                      to = (y.max - y.interval/2), by = y.interval)
+        y.cuts[numints + 1] <- y.cuts[numints + 1] *
+          1.001
+        x.cuts <- seq(from = x.min, to = x.max, by = x.interval)
+        x.mids <- seq(from = (x.min + x.interval/2),
+                      to = (x.max - x.interval/2), by = x.interval)
+        x.cuts[numints + 1] <- x.cuts[numints + 1] *
+          1.001
+        grid.density <- matrix(0, nrow = numints, ncol = numints)
+        for (j in 1:numints) {
+          for (k in 1:numints) {
+            grid.density[j, k] <- sum(1 * (yvect >= y.cuts[k] &
+                                             yvect < y.cuts[k + 1] & xvect >= x.cuts[j] &
+                                             xvect < x.cuts[j + 1]), na.rm = TRUE)
+          }
+        }
+        grid.density.obj <- list()
+        grid.density.obj[[1]] <- cbind(grid.density,
+                                       x.mids, y.mids)
+        numcol <- dim(grid.density.obj[[1]])[2]
+        Global.grid.density <- grid.density
+      }
+    }
+    graphics::par(mfrow = c(1, 1))
+    x <- grid.density.obj[[1]][, (numcol - 1)]
+    y <- grid.density.obj[[1]][, (numcol)]
+    z <- Global.grid.density
+    if (show == "all") {
+        x <- x  # to keep the code format
+    }
+    else if (show == "zoomed") {
+      flag <- 0
+      rows_top <- 1
+      while (flag != 1) {
+        if (all(Global.grid.density[rows_top, ] == 0)) {
+          rows_top <- rows_top + 1
+        }
+        else {
+          flag <- 1
+        }
+      }
+      if (rows_top == 1) {
+        dummy_top <- rows_top
+      }
+      else {
+        dummy_top <- rows_top - 1
+      }
+      flag <- 0
+      rows_bot <- dim(Global.grid.density)[1]
+      while (flag != 1) {
+        if (all(Global.grid.density[rows_bot, ] == 0)) {
+          rows_bot <- rows_bot - 1
+        }
+        else {
+          flag <- 1
+        }
+      }
+      if (rows_bot == dim(Global.grid.density)[1]) {
+        dummy_bot <- rows_bot
+      }
+      else {
+        dummy_bot <- rows_bot + 1
+      }
+      flag <- 0
+      col_left <- 1
+      while (flag != 1) {
+        if (all(Global.grid.density[, col_left] == 0)) {
+          col_left <- col_left + 1
+        }
+        else {
+          flag <- 1
+        }
+      }
+      if (col_left == 1) {
+        dummy_left <- col_left
+      }
+      else {
+        dummy_left <- col_left - 1
+      }
+      flag <- 0
+      col_right <- dim(Global.grid.density)[2]
+      while (flag != 1) {
+        if (all(Global.grid.density[, col_right] == 0)) {
+          col_right <- col_right - 1
+        }
+        else {
+          flag <- 1
+        }
+      }
+      if (col_right == 1) {
+        dummy_right <- dim(Global.grid.density)[2]
+      }
+      else {
+        dummy_right <- col_right + 1
+      }
+      z.zoomed <- Global.grid.density[dummy_top:dummy_bot,
+                                      dummy_left:dummy_right]
+      x.zoomed <- x[dummy_top:dummy_bot]
+      y.zoomed <- y[dummy_left:dummy_right]
+      x <- x.zoomed
+      y <- y.zoomed
+    }
+    else {
+      stop("Function argument \"show\" has to be either \"all\" or \"zoomed\"")
+    }
+   return(list(Global.grid.density, xlab = x.lab, ylab = y.lab, x = x, y = y))
+}
+
+
+
+
+
+######################################:::::::::::::::::::::::::::================================
 
 freePipes <- function(pipeDir, maxWorkers, timeout){
   resPipes <- grep('res', dir(pipeDir), value = TRUE) # the workers have each their '.res' pipe
@@ -76,7 +316,6 @@ applyFunc <- function(func, var, type , cohorts = NULL){
 
   } else if(varmap[[var]]$type == 'nominal'){
     var = paste0('working_set$', var)
-   # ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts %>% unlist %>% list %>% sapply(function(b) as.list(b[,1]), simplify = FALSE)
     ret <- ds.table1D(var,type = type , warningMessage = FALSE, datasources = op)$counts
     if(!is.list(ret)){
       ret <- list(global = ret)
@@ -94,7 +333,48 @@ applyFunc <- function(func, var, type , cohorts = NULL){
   ret
 }
 
-runAlgo <- function(algoName, paramList){
+
+
+runAlgo <- function(algoArgs){
+  # maybe one day I'll take these functions out and in the listener at start
+  completeCases <- function(cols, df = 'working_set', output = 'cc'){ # subset to the necessary columns only, then complete.cases
+    filterCols <- paste(cols, collapse = "','") %>% paste0("c('",., "')")
+    dssSubset(output, df, row.filter = paste0('complete.cases(',df, '[,', filterCols, '])'), col.filter = filterCols)
+    return(output)
+  }
+  parseRegressionArgs <- function(){
+    var <- algoArgs$algorithm$variable # should be only one
+    coVars <-  algoArgs$algorithm$coVariables
+    datasets <- Reduce(function(x,y){
+                                        list(cohorts = intersect(x$cohorts, y$cohorts))
+                             }, varmap[c(coVars, var)]) # consider only the datasources that contain all these coVariables
+
+    if(!is.null(algoArgs$datasets)){ # then intersect them with the required ones:
+      datasets <- intersect(datasets$cohorts, algoArgs$datasets)
+    }
+    if(length(datasets) == 0){
+      stop('No datasets found for these coVariables.')
+    }
+
+    textVars <- paste(coVars, collapse = ' + ')
+    formula <- paste0(var, ' ~ ', textVars)
+
+    return(list(formula = formula, datasources = opals[datasets], data = completeCases(c(var,coVars)))) # completeCases has side effects!
+
+  }
+
+   parseLogisticArgs <- function(){
+     genArgs <-parseRegressionArgs()
+     pos.level <- algoArgs$algorithm[['pos-level']]
+     dssDeriveColumn('cc', col.name = algoArgs$algorithm$variable, formula = paste0('one.versus.others(',algoArgs$algorithm$variable, ',"', pos.level, '")', datasources = genArgs$datasoruces)) # make the covariate binary
+     return(genArgs)
+   }
+
+
+  formatters <- list('linear-regression' = parseRegressionArgs,
+                     'logistic-regression' = parseLogisticArgs
+                    )
+
   algos <- list('linear-regression' = list(ds.glm,
                                           family = 'gaussian'
                                         ),
@@ -102,8 +382,16 @@ runAlgo <- function(algoName, paramList){
                                            family = 'binomial'
                                         )
                 )
-  paramList$datasources <- opals[paramList$datasources]
-  eval(as.call(c(algos[[algoName]], paramList)))
+
+
+  paramList <- formatters[[algoArgs$algorithm$id]]()
+  res <- eval(as.call(c(algos[[algoArgs$algorithm$id]], paramList)))
+  res$family <- NULL # jsonlite doesn't like family
+  if('coefficients' %in% names(res)){
+    res$coefficients <- as.data.frame(res$coefficients) # to keep the names after to/from json
+  }
+  datashield.rm(paramList$datasources, paramList$data) # keep the remote sessions slim
+  res
 }
 
 sentry <- function(user , password ){ # must return a head minion
@@ -255,7 +543,7 @@ app$add_get(
       person_cols <- ds.colnames('person', datasources = opals) %>% dssSwapKeys()
       person_cols <- person_cols[unlist(p)]
 
-      varmap <- c(varmap, sapply(person_cols, function(x){   # add the person variables (all nominal)
+      varmap <- c(varmap, sapply(person_cols, function(x){   # add the person coVariables (all nominal)
         list(cohorts = x, type = 'nominal')
       }, simplify = FALSE))
 
@@ -285,11 +573,11 @@ app$add_get(
       stop(result$message)
     }
 
-    bubbleData$variables <- result$message$var
+    bubbleData$coVariables <- result$message$var
     bubbleData$groups <- lapply(names(result$message$groups), function(x){
-      list(id = x, label = x, variables =  result$message$groups[[x]])
+      list(id = x, label = x, coVariables =  result$message$groups[[x]])
     })
-  #  bubbleData$groups[[length(bubbleData$groups)+1]] <- list(id = 'cohorts', label = 'Cohorts', variables = names(dssSwapKeys(config$resourceMap)) %>%  sub('\\..*','',.)) # without the 'db suffix', function(x){
+  #  bubbleData$groups[[length(bubbleData$groups)+1]] <- list(id = 'cohorts', label = 'Cohorts', coVariables = names(dssSwapKeys(config$resourceMap)) %>%  sub('\\..*','',.)) # without the 'db suffix', function(x){
     jsonBubble <- jsonlite::toJSON(bubbleData)
     jsonVarMap <- jsonlite::toJSON(result$message$varmap)
     save(jsonBubble, file = paste0(cacheDir, '/bubble.json'))
@@ -336,6 +624,38 @@ app$add_get(
     res$set_body(jsonlite::toJSON(r$message, auto_unbox = TRUE))
 
 })
+
+
+app$add_get(
+  path = "/descriptivestats",
+  FUN = function(req,res){
+
+    mySid <- req$cookies[['sid']]
+    myUser <- req$cookies[['user']]
+
+    kevin <- Minion$new(myUser, config$loginData, config$resourceMap)
+
+    qPath <- paste0(tempdir(TRUE), '/', config$dir , '/',myUser, '_', mySid)
+    kevin$reqQ <- txtq(paste0(qPath, '.req'))
+    kevin$resQ <- txtq(paste0(qPath, '.res'))
+
+    params <- req$parameters_query
+    covars <- params$covariables
+    vars <- params$variables
+
+    quants <- sapply(c(covars,vars), function(var) kevin$sendRequest(applyFunc, list('ds.quantileMean', var, 'combine', params$cohorts)))
+    heatmaps <- lapply(vars, function(v) lapply(covars, function(c) kevin$sendRequest(combinedHeatmap, list(x = c, y = v, cohorts = params$cohorts)))) %>% Reduce(c,.)
+
+    res$set_body(jsonlite::toJSON(list(quants = quants$message, heatmaps = heatmaps$message), auto_unbox = TRUE))
+
+  })
+
+
+
+
+
+
+
 
 app$add_get(
   path = "/histogram",
@@ -400,21 +720,10 @@ app$add_post(
     stuart$reqQ <- txtq(paste0(qPath, '.req'))
     stuart$resQ <- txtq(paste0(qPath, '.res'))
     experiment <- jsonlite::fromJSON(req$body)
+    model <- stuart$sendRequest(runAlgo, list(experiment))
+    #res$set_body(jsonlite::toJSON(model$message, auto_unbox = TRUE))
+    res$set_body(model$message)
 
-    datasets <- experiment$datasets # array of string (dataset ids)
-
-    co_var <- experiment$coVariable # should be only one
-    algorithm_id <- experiment$algorithm$id # string
-   # params <- experiment$algorithm$params # list of {id='example', value='example'}
-    vars<- paste0('working_set$', experiment$variables)
-    vars <- paste(vars, collapse=' + ')
-    formula <- paste0('working_set$',co_var, ' ~ ', vars)
-    algoArgs <- list(datasources = experiment$datasets, formula = formula)
-
-   model <- stuart$sendRequest(runAlgo, list(algorithm_id, algoArgs))
-
-   # res$set_body(jsonlite::toJSON(model, auto_unbox = TRUE))
-    res$set_body(model)
   }
 )
 
@@ -503,15 +812,16 @@ test_that(" Endpoint /quantiles works for factors", {
 })
 
 
-test_that(" Endpoint /runAlgorithm works", {
+test_that(" Endpoint /runAlgorithm works with linear regression", {
   ### make the request:
   req3 <- Request$new(
     path = "/runAlgorithm",
 
-    body = jsonlite::toJSON(list(coVariable = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma",
-                            variables = list("Urea.nitrogen..Mass.volume..in.Serum.or.Plasma" ),
-                            algorithm = list(id = 'linear-regression'),
-                            datasets ="sophia.db")),
+    body = jsonlite::toJSON(list(
+                            algorithm = list(id = 'linear-regression',
+                                             variable = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma",
+                                             coVariables = c("Urea.nitrogen..Mass.volume..in.Serum.or.Plasma" , "Albumin..Mass.volume..in.Serum.or.Plasma")),
+                            datasets =c("sophia.db"))),
     method = 'POST',
     cookies = ck,
     content_type = 'application/json'
@@ -521,6 +831,27 @@ test_that(" Endpoint /runAlgorithm works", {
   xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(names(xxx), c(  "sophia.db"  ))
 })
+
+test_that(" Endpoint /runAlgorithm works with logistic regression", {
+  ### make the request:
+  req4 <- Request$new(
+    path = "/runAlgorithm",
+
+    body = jsonlite::toJSON(list(algorithm = list(id = 'logistic-regression',
+                                                  coVariables = c("Urea.nitrogen..Mass.volume..in.Serum.or.Plasma" , "Albumin..Mass.volume..in.Serum.or.Plasma"),
+                                                  variable = "race",
+                                                  'pos-level' = 'White'),
+                                 datasets =c("sophia.db", 'test.db'))),
+    method = 'POST',
+    cookies = ck,
+    content_type = 'application/json'
+  )
+  response4 <- app$process_request(req4)
+
+  expect_equal(names(xxx), c(  "sophia.db"  ))
+})
+
+
 
 
 test_that(" Endpoint /logout works", {
@@ -541,10 +872,43 @@ test_that(" Endpoint /logout works", {
 #x <- kevin$sendRequest(applyFunc, list('ds.histogram',"Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'split', cohorts ="sophia.db"))$message
 #x <- kevin$sendRequest(applyFunc, list(ds.quantileMean,"Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", type = 'combine', cohorts ="sophia.db, test.db"))$message
 
-f <- function(){
+f <- function(vars){
 #dssColNames('working_set')
-  ls(envir = .GlobalEnv)
+  #ls(envir = .GlobalEnv)
+  Reduce(function(x,y){
+    list(cohorts = intersect(x$cohorts, y$cohorts))
+  }, varmap[vars])
 
 }
-kevin$sendRequest(f,timeout = 180)
 
+gv <- function(f,...){
+  #dssDeriveColumn('cc', col.name = 'race', formula = 'one.versus.others(race, "White")') # make the covariate binary
+ # ds.levels('cc$race')
+ # datashield.symbols(opals)
+  return(ds.colnames('working_set'))
+  png('/tmp/heatmap')
+
+  out <- f(...)
+  dev.off()
+  return(out)
+}
+vm <- kevin$sendRequest(gv,timeout = 180)
+
+x <- kevin$sendRequest(gv, list(combinedHeatmap,x="working_set$Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", y="working_set$Urea.nitrogen..Mass.volume..in.Serum.or.Plasma"))
+x <- kevin$sendRequest(gv, list(combinedHeatmap,x="working_set$ethnicity", y="working_set$Urea.nitrogen..Mass.volume..in.Serum.or.Plasma"))
+o <- c()
+for (i in 1:length(x$message$y)){
+  o <- c(o, x$message$y[i] - x$message$y[i-1])
+}
+
+
+Reduce(function(x,y){
+  if(is.null(x)){
+    return(y)
+  } else if(is.null(y)){
+    return(x)
+  } else {
+    return(intersect(x,y))
+  }
+}, list(NULL, NULL
+        ,NULL ))
