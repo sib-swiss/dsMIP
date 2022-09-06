@@ -876,16 +876,16 @@ test_that(" Endpoint /descStats works ", {
 })
 
 
-test_that(" Endpoint /logout works", {
+#test_that(" Endpoint /logout works", {
   ### make the request:
-  req2 <- Request$new(
-    path = "/logout",
-    cookies = ck
-  )
-  response4 <- app$process_request(req2)
-  xx<<- jsonlite::fromJSON(response4$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(xx[['title']], c('STOP' ))
-})
+#  req2 <- Request$new(
+#    path = "/logout",
+#    cookies = ck
+#  )
+#  response4 <- app$process_request(req2)
+#  xx<<- jsonlite::fromJSON(response4$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+#  expect_equal(xx[['title']], c('STOP' ))
+#})
 
 
 
