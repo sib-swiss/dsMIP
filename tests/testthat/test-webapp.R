@@ -1,17 +1,19 @@
 
-combinedHeatmap <- function (x = NULL, y = NULL,  show = "all",
+combinedHeatmap <- function (x = NULL, y = NULL,  show = "zoomed",
           numints = 20, method = "smallCellsRule", k = 3, noise = 0.25,
           cohorts = NULL) {
+
   for (var in c(x,y)){
     if(varmap[[var]]$type != 'number'){
       # nothing to do here:
       return(NULL)
     }
   }
+  if(!is.null(cohorts)){
+    cohorts <- strsplit(cohorts, ',\\s*')
+  }
 
-  cohorts <- strsplit(cohorts, ',\\s*')[[1]]
-
-  datasources <- Reduce(function(x,y){ # keep only the common datasources
+  finalCohorts <- Reduce(function(x,y){ # keep only the common datasources
     if(is.null(x)){
       return(y)
     } else if(is.null(y)){
@@ -23,10 +25,13 @@ combinedHeatmap <- function (x = NULL, y = NULL,  show = "all",
 
 
   type = 'combine'
-  if (is.null(datasources)) {
+  if (is.null(finalCohorts)) {
     datasources <- datashield.connections_find()
+  } else {
+    datasources <- opals[finalCohorts]
   }
-  if (is.null(x)) {
+
+   if (is.null(x)) {
     stop("x=NULL. Please provide the names of the 1st numeric vector!",
          call. = FALSE)
   }
@@ -34,15 +39,18 @@ combinedHeatmap <- function (x = NULL, y = NULL,  show = "all",
     stop("y=NULL. Please provide the names of the 2nd numeric vector!",
          call. = FALSE)
   }
+  x <- paste0('working_set$',x)
+  y <- paste0('working_set$',y)
+
   if (method != "smallCellsRule" & method != "deterministic" &
       method != "probabilistic") {
     stop("Function argument \"method\" has to be either \"smallCellsRule\" or \"deterministic\" or \"probabilistic\"",
          call. = FALSE)
   }
   xnames <- extract(x)
-  x.lab <- xnames[[length(xnames)]]
+  x.lab <- sub('working_set$', '', xnames[[length(xnames)]], fixed = TRUE)
   ynames <- extract(y)
-  y.lab <- ynames[[length(ynames)]]
+  y.lab <- sub('working_set$', '',  ynames[[length(ynames)]], fixed = TRUE)
   stdnames <- names(datasources)
   num.sources <- length(datasources)
   if (method == "deterministic") {
@@ -154,6 +162,10 @@ combinedHeatmap <- function (x = NULL, y = NULL,  show = "all",
     y <- grid.density.obj[[1]][, (numcol)]
     z <- Global.grid.density
     if (show == "all") {
+      png('./heatmap.png')
+      fields::image.plot(x, y, z, xlab = x.lab, ylab = y.lab,
+                         main = "Heatmap Plot of the Pooled Data")
+      dev.off()
         x <- x  # to keep the code format
     }
     else if (show == "zoomed") {
@@ -390,7 +402,7 @@ runAlgo <- function(algoArgs){
   if('coefficients' %in% names(res)){
     res$coefficients <- as.data.frame(res$coefficients) # to keep the names after to/from json
   }
-  datashield.rm(paramList$datasources, paramList$data) # keep the remote sessions slim
+  try(datashield.rm(paramList$datasources, paramList$data), silent = TRUE) # keep the remote sessions slim
   res
 }
 
@@ -627,7 +639,7 @@ app$add_get(
 
 
 app$add_get(
-  path = "/descriptivestats",
+  path = "/descStats",
   FUN = function(req,res){
 
     mySid <- req$cookies[['sid']]
@@ -643,10 +655,10 @@ app$add_get(
     covars <- params$covariables
     vars <- params$variables
 
-    quants <- sapply(c(covars,vars), function(var) kevin$sendRequest(applyFunc, list('ds.quantileMean', var, 'combine', params$cohorts)))
-    heatmaps <- lapply(vars, function(v) lapply(covars, function(c) kevin$sendRequest(combinedHeatmap, list(x = c, y = v, cohorts = params$cohorts)))) %>% Reduce(c,.)
+    quants <- sapply(c(covars,vars), function(var) kevin$sendRequest(applyFunc, list('ds.quantileMean', var, 'combine', params$cohorts)), simplify = FALSE)
+    heatmaps <- lapply(vars, function(v) lapply(covars, function(c) kevin$sendRequest(combinedHeatmap, list(x = c, y = v, cohorts = params$cohorts))))
 
-    res$set_body(jsonlite::toJSON(list(quants = quants$message, heatmaps = heatmaps$message), auto_unbox = TRUE))
+    res$set_body(jsonlite::toJSON(list(quants = sapply(quants, '[[', 'message'), heatmaps = lapply(heatmaps, function(x) lapply(x, '[[', 'message'))), auto_unbox = TRUE))
 
   })
 
@@ -795,19 +807,19 @@ test_that(" Endpoint /quantiles works", {
     cookies = ck
   )
   response3 <- app$process_request(req2)
-  x<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(names(x), c('global' ))
+  x<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  expect_equal(length(x$global), 8)
 })
 
 test_that(" Endpoint /quantiles works for factors", {
   ### make the request:
-  req2 <- Request$new(
+  req <- Request$new(
     path = "/quantiles",
     parameters_query = list(var = "ethnicity", type = 'combine', cohorts = 'sophia.db'),
     cookies = ck
   )
-  response3 <- app$process_request(req2)
-  x<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  response <- app$process_request(req)
+  x<- jsonlite::fromJSON(response$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   expect_equal(names(x), c('global' ))
 })
 
@@ -828,8 +840,8 @@ test_that(" Endpoint /runAlgorithm works with linear regression", {
   )
   response3 <- app$process_request(req3)
 
-  xxx<<- jsonlite::fromJSON(response3$body, simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  expect_equal(names(xxx), c(  "sophia.db"  ))
+
+  expect_equal(response3$body$Ntotal, 107)
 })
 
 test_that(" Endpoint /runAlgorithm works with logistic regression", {
@@ -848,10 +860,20 @@ test_that(" Endpoint /runAlgorithm works with logistic regression", {
   )
   response4 <- app$process_request(req4)
 
-  expect_equal(names(xxx), c(  "sophia.db"  ))
+  expect_equal(response4$body$Ntotal, 214)
 })
 
-
+test_that(" Endpoint /descStats works ", {
+  ### make the request:
+  req <- Request$new(
+    path = "/descStats",
+    parameters_query = list(covariables = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", variables ="Urea.nitrogen..Mass.volume..in.Serum.or.Plasma"),
+    cookies = ck
+  )
+  response <- app$process_request(req)
+  xx<<- jsonlite::fromJSON(response$body, simplifyDataFrame = FALSE, simplifyMatrix = TRUE)
+  expect_equal(length(xx), 2)
+})
 
 
 test_that(" Endpoint /logout works", {
@@ -885,7 +907,7 @@ gv <- function(f,...){
   #dssDeriveColumn('cc', col.name = 'race', formula = 'one.versus.others(race, "White")') # make the covariate binary
  # ds.levels('cc$race')
  # datashield.symbols(opals)
-  return(ds.colnames('working_set'))
+  return(list(cols = dssColNames('working_set'), varmap = varmap))
   png('/tmp/heatmap')
 
   out <- f(...)
@@ -912,3 +934,16 @@ Reduce(function(x,y){
   }
 }, list(NULL, NULL
         ,NULL ))
+
+covars = "Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma"
+vars ="Urea.nitrogen..Mass.volume..in.Serum.or.Plasma"
+
+sapply(c(covars,vars), function(var) kevin$sendRequest(applyFunc, list('ds.quantileMean', var, 'combine', NULL)))
+
+resnames <- dssSwapKeys(config$resourceMap)
+
+logindata2 <- lapply(names(resnames), function(x){
+  out <- logindata[logindata2$server == resnames[[x]],,drop=FALSE]
+  out$server <- x
+  out
+}) %>% Reduce(rbind,.)

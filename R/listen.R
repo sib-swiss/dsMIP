@@ -1,5 +1,106 @@
 #' @export
-listen <- function(reqPath, resPath, every = 1, timeout = 1200){  # executed in the cluster node
+
+listen <- function( usr, pwd, logindata, resourceMap, reqPath, libs = NULL,  every = 1, heartbeatInterval = 300){
+  #there will be one or more dameons running each a copy of this function, all logged into the remote nodes, all servicing one request queue
+  reqQ <- txtq::txtq(reqPath) # the requests queue
+  st <- as.numeric(Sys.time())
+  opals <- .login(usr, pwd, logindata, libs)
+  varmap <- .load(opals, resourceMap)
+}
+
+.login <- function(usr, pwd, libs = NULL, logindata, resourceMap){
+  libs <- unique(c(libs, 'dsSwissKnifeClient', 'dsQueryLibrary', 'magrittr'))
+  lapply(libs, library, character.only = TRUE) # load the libraries
+  # finalise logindata
+  logindata$user <- usr
+  logindata$password <- pwd
+  logindata$driver <- 'OpalDriver'
+
+  ######### make one logindata entry per resource (as opposed to one per server - we'll have one or more connections per server) ###########
+  resnames <- dssSwapKeys(resourceMap)
+  logindata <- lapply(names(resnames), function(x){
+    out <- logindata[logindata$server == resnames[[x]],,drop=FALSE]
+    out$server <- x
+    out
+  }) %>% Reduce(rbind,.)
+  ##################################################
+  ######################### login where allowed, fail silently elsewhere #################################
+  opals <- list()
+  for(i in logindata$server){
+    try(opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE]), silent = TRUE)
+  }
+  return(opals)
+}
+
+.load <- function(datasources, resourceMap){
+  #first the resources:
+  sapply(names(resourceMap), function(res){
+    datashield.assign.resource(opals[res], sub('.','_',resourceMap[[res]], fixed = TRUE), resourceMap[[res]], async = FALSE)
+  })
+  # load the 2 data frames
+  dsqLoad(symbol= 'measurement',
+          domain = 'concept_name',
+          query_name = 'measurement',
+          where_clause = 'value as number is not null',
+          row_limit =  3000000, ## tayside doesn't handle more
+          union = TRUE,
+          datasources = datasources)
+  dsqLoad(symbol= 'person',
+          domain = 'concept_name',
+          query_name = 'person',
+          where_clause = 'value as number is not null',
+          union = TRUE,
+          datasources = datasources)
+  # fix funky measurement dates:
+  dssSubset('measurement', 'measurement', row.filter = 'measurement_date >= "01-01-1970', datasources = datasources)
+
+  ############## calculate age #####################
+
+  # order by measurement date for each person_id
+  dssSubset('measurement', 'measurement', 'order(person_id, measurement_date)', async = TRUE, datasources = datasources)
+  #  measurement dates as numbers:
+  dssDeriveColumn('measurement', 'measurement_date_n', 'as.numeric(as.Date(measurement_date))', datasources = datasources)
+  # add a dummy column just for the widening formula, this will hold eventually the 'aggregate' first measurement date
+  dssDeriveColumn('measurement', 'f', '"irst_measurement_dat.e"', datasources = datasources)
+  # now we can widen by that column and pick the first value:
+  dssPivot(symbol = 'first_m_dates', what ='measurement', value.var = 'measurement_date_n',
+           formula = 'person_id ~ f',
+           by.col = 'person_id',
+           fun.aggregate = function(x)x[1], # we are sure it's the first date, baseline, they've been ordered
+           async = TRUE,
+           datasources = datasources)
+
+  dssJoin(c('person', 'first_m_dates'), symbol= 'person', by = 'person_id', join.type = 'inner', datasources = datasources)
+  try(datashield.rm(datasources, 'first_m_dates'), silent = TRUE) # keep it slim
+  # now calculate the age at first measurement:
+  dssDeriveColumn('person', 'age', 'round((f.irst_measurement_dat.e - as.numeric(as.Date(birth_datetime)))/365)', datasources = datasources)
+
+  ###################  finished with age ##########################################
+
+  dssPivot(symbol = 'wide_m', what ='measurement', value.var = 'value_as_number',
+           formula = 'person_id ~ measurement_name',
+           by.col = 'person_id',
+           fun.aggregate = function(x)x[1], # maybe we'll want mean here?
+           datasources = datasources)
+  try(datashield.rm(datasources, 'measurement'), silent = TRUE)
+  dssJoin(what = c('wide_m', 'person'),
+          symbol = 'working_set',
+          by = 'person_id',
+          datasources = datasources)
+  dssSubset('working_set', 'working_set', col.filter = 'setdiff(colnames(working_set), c("database", "f.irst_measurement_dat.e", "birth_datetime" , "location_id", "provider_id" , "care_site_id")) ') # get rid of superfluous columns
+  try(datashield.rm(datasources, 'person'), silent = TRUE)
+  try(datashield.rm(datasources, 'wide_m'), silent = TRUE)
+  #### fix column names:
+  n <- dssColNames('working_set')
+  sapply(names(n), function(x){
+    cnames <- n[[x]]
+    cnames <- sub('measurement_name.', '', cnames, fixed = TRUE)
+    dssColNames('working_set', cnames, datasources = opals[[x]])
+  })
+
+}
+
+listen <- function(reqPath,  every = 1, timeout = 1200){  # executed in the cluster node
   reqQ <- txtq::txtq(reqPath)
   resQ <- txtq::txtq(resPath)
   st <- as.numeric(Sys.time())
