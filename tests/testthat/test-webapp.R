@@ -906,7 +906,8 @@ f <- function(vars){
 gv <- function(f,...){
   #dssDeriveColumn('cc', col.name = 'race', formula = 'one.versus.others(race, "White")') # make the covariate binary
  # ds.levels('cc$race')
- # datashield.symbols(opals)
+ # datashield.symbols
+
   return(list(cols = dssColNames('working_set'), varmap = varmap))
   png('/tmp/heatmap')
 
@@ -915,6 +916,16 @@ gv <- function(f,...){
   return(out)
 }
 vm <- kevin$sendRequest(gv,timeout = 180)
+
+x <- dssSwapKeys(vm$message$cols)
+y <- sapply(x, function(a){
+  list(type = 'number', cohorts = a)
+}, simplify = FALSE)
+
+y[c('ethnicity', 'race')] <- sapply(y[c('ethnicity', 'race')], function(a){
+                                                                        list(type = 'nominal', cohorts = a$cohorts)
+                                                                        }, simplify = FALSE)
+
 
 x <- kevin$sendRequest(gv, list(combinedHeatmap,x="working_set$Alanine.aminotransferase..Enzymatic.activity.volume..in.Serum.or.Plasma", y="working_set$Urea.nitrogen..Mass.volume..in.Serum.or.Plasma"))
 x <- kevin$sendRequest(gv, list(combinedHeatmap,x="working_set$ethnicity", y="working_set$Urea.nitrogen..Mass.volume..in.Serum.or.Plasma"))

@@ -53,6 +53,22 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
       resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = '"Fun" must me a function name, a character.')))
       next
     }
+
+    ####### deal with the"stop" message ######
+
+    if(toDo$fun == 'STOP'){
+      stopMessage <- 'Stopped'
+      tryCatch({datashield.logout(opals)
+        stopMessage <- paste0(stopMessage, ' and logged out.')},
+        error = function(e){
+          resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = e$msg)))
+        })
+      resQ$push('STOP', jsonlite::serializeJSON(list(pid = toDo$pid, message = stopMessage)))
+      return()
+    }
+
+    ########################
+
     activeFunc <- .GlobalEnv[[toDo$fun]]
     if(is.null(activeFunc)){
       source(sourceFile) # try again
@@ -78,10 +94,10 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
       }
     }, error = function(e){
       res <- e$message
-      if(grepl('datashield.errors', res)){
+      if(grepl('datashield.errors', res)){ # that's an error on the node(s)
         res <- datashield.errors()
       }
-      resQ$push('error', jsonlite::serializeJSON(res))
+      resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = res)))
     }, finally = {
       st <- as.numeric(Sys.time())    # either way reset the timer
     })
