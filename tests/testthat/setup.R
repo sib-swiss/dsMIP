@@ -7,11 +7,11 @@ dir.create(paste0(tempdir(check = TRUE), '/cache'))
 x <- system2('docker', args = c('ps'), stdout = TRUE )
 if(length(grep('docker_nodes_mip',x)) < 6){
   system2('docker-compose', args = c('-f', '../docker_nodes_mip/docker-compose.yml', 'up', '-d'))
-  Sys.sleep(120)
+  Sys.sleep(60)
   x <- system2('docker', args = c('ps'), stdout = TRUE )
   stopThem <<- TRUE
 }
-confFile <- '../config.json'
+confFile <- '../config2.json'
 config <- readChar(confFile, file.info(confFile)$size) %>%
   gsub('(?<=:)\\s+|(?<=\\{)\\s+|(?<=,)\\s+|(?<=\\[)\\s+','',., perl = TRUE) %>%
   fromJSON()
@@ -22,5 +22,28 @@ if(stopThem){
   }) %>% unlist
   conts[1] <- 'stop' # conts now contains the args for a 'docker stop' command - will be executed in teardown
 }
+
+
+# launch the listener(s)
+###
+Sys.setenv(pass = 'guest123')
+genPath <- paste0(tempdir(TRUE), '/', config$dir)
+dir.create(genPath)
+reqPath <- paste0(genPath, '/requests')
+reqQ <- txtq(reqPath)
+sourceFile <- '../listener_functions.R'
+listeners <- list()
+for(i in 1:config$workers){
+  Sys.sleep(20)
+    outPath <- paste0(genPath, '/out_', i)
+  errPath <- paste0(genPath, '/err_', i)
+
+  code <- paste0("dsMIP::listen('",confFile, "','", reqPath, "','", sourceFile,"')")
+  print(code)
+  listeners[[i]] <- processx::process$new('/usr/bin/Rscript',
+                                          c('-e',code), cleanup = FALSE, stderr = errPath, stdout = outPath)
+
+}
+###
 
 

@@ -1,23 +1,30 @@
-test_that("minion initializes and queues are in place", {
-  kevin <- Minion$new('guest',c('dsSwissKnifeClient'), '/datashield-engine')
-  reqP <- kevin$reqQ$path()
-  resP <- kevin$resQ$path()
-  expect_true(file.exists(reqP))
-  expect_true(file.exists(resP))
-  kevin$stopQueues()
-  expect_false(file.exists(reqP))
-  expect_false(file.exists(resP))
+test_that("listener listens to basic commands", {
+  resPath <- paste0(genPath, '/test.resq')
+  resQ <- txtq(resPath)
+  #### the message has this structure:
+  # $resPath - path to the response queue
+  #### no pid for now, try with one response queue per request # $pid - pid of the requesting process (to differentiate between 2 simultaneous requests from the same user)
+  # $fun - the *name* of the function to be called (the function must be defined before)
+  # $args - a list containing the function arguments
+  # $waitForIt -  a flag indicating a result should be returned in the response queue
+  ############
+  mesg <- list(fun = 'STOP', args = list(list(1)), resPath = resPath)
+  reqQ$push('fun', jsonlite::serializeJSON(mesg))
+  x <- resQ$pop()
+  jsonlite::unserializeJSON(x$message)
+  reqQ$log()
+
 })
 
 test_that("head minion can start and stop the listener process", {
-  carl <- HeadMinion$new('guest',c('dsSwissKnifeClient'), '/datashield-engine')
-  carl$startProc()
-  pid <- carl$getProc()$get_pid()
   x <- system(paste0('ps -p ', pid), intern = TRUE)
   expect_match(x[2], as.character(pid))
   carl$stopProc()
   expect_null(carl$getProc())
   suppressWarnings( x <- system(paste0('ps -p ', pid), intern = TRUE))
+  carl <- HeadMinion$new('guest',c('dsSwissKnifeClient'), '/datashield-engine')
+  carl$startProc()
+  pid <- carl$getProc()$get_pid()
   expect_equal(attr(x, 'status'), 1)
   carl$stopQueues()
 })

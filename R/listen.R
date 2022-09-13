@@ -1,14 +1,20 @@
 #' @export
 
-listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs = NULL,  every = 1, heartbeatInterval = 300){
+listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval = 300){
   #there will be one or more dameons running each a copy of this function, all logged into the remote nodes, all servicing one request queue
   # sourceFile contains all the functions that will be invoked by the endpoints
+  library(txtq)
+  library(jsonlite)
+  library(magrittr)
+
   source(sourceFile)
-  reqQ <- txtq::txtq(reqPath) # the requests queue
-
-  opals <- .login(usr, pwd, logindata, libs)
-  varmap <- .load(opals, resourceMap)
-
+  reqQ <- txtq(reqPath) # the requests queue
+  conf <- .processConf(confFile)
+  pwd <- Sys.getenv('pass')
+  opals <- .login(conf$usr, pwd, conf$libs, conf$loginData, conf$resourceMap)
+  assign('opals', opals, envir = .GlobalEnv)
+  varmap <- .load(opals)
+  rm(conf)
   ################## round and round #########################################
   st <- as.numeric(Sys.time())
   while(TRUE){
@@ -30,13 +36,17 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
     toDo <- jsonlite::unserializeJSON(msg$message)
     #### the message has this structure:
     # $resPath - path to the response queue
-    # $pid - pid of the requesting process (to differentiate between 2 simultaneous requests from the same user)
+    #### no pid for now, try with one response queue per request # $pid - pid of the requesting process (to differentiate between 2 simultaneous requests from the same user)
     # $fun - the *name* of the function to be called (the function must be defined before)
     # $args - a list containing the function arguments
     # $waitForIt -  a flag indicating a result should be returned in the response queue
     ############
     if(is.null(toDo$waitForIt)){
-      toDo$waitForit <- FALSE
+      if(!is.null(toDo$resPath)){
+        toDo$waitForit <- TRUE
+      } else {
+        toDo$waitForit <- FALSE
+      }
     }
     if(is.null(toDo$resPath)){
      if(toDo$waitForIt){
@@ -44,16 +54,15 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
         next
      }
     }
-    if(!file.exists(toDo$resPath)) {
-      file.create(toDo$resPath)
-    }
     # ok we can use the queue:
     resQ <- txtq(toDo$resPath)
-    if(!is.character(toDo$fun)){
-      resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = '"Fun" must me a function name, a character.')))
-      next
-    }
 
+#######extra security, to be enabled later: ##############
+  #  if(!is.character(toDo$fun)){
+  #    resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = '"Fun" must me a function name, a character.')))
+  #    next
+  #  }
+#####################
     ####### deal with the"stop" message ######
 
     if(toDo$fun == 'STOP'){
@@ -61,28 +70,30 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
       tryCatch({datashield.logout(opals)
         stopMessage <- paste0(stopMessage, ' and logged out.')},
         error = function(e){
-          resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = e$msg)))
+          resQ$push('error', jsonlite::serializeJSON(e$msg))
         })
-      resQ$push('STOP', jsonlite::serializeJSON(list(pid = toDo$pid, message = stopMessage)))
+      resQ$push('STOP', jsonlite::serializeJSON(stopMessage))
       return()
     }
 
     ########################
 
-    activeFunc <- .GlobalEnv[[toDo$fun]]
-    if(is.null(activeFunc)){
-      source(sourceFile) # try again
-      if(is.null(activeFunc)){
-        resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = 'Function not found')))
-        next
-      }
-    }
+  #  activeFunc <- .GlobalEnv[[toDo$fun]]
+  #  if(is.null(activeFunc)){
+  #    source(sourceFile) # try again
+  #    if(is.null(activeFunc)){
+  #      resQ$push('error', jsonlite::serializeJSON( list(message = 'Function not found')))
+  #      next
+  #    }
+  #  }
+   activeFunc <- toDo$fun
 
     if(is.null(toDo$args)){
       toDo$args <- list()
     }
 
     resQ$clean() # before sending the response, like that the last response is always in the queue for later inspection
+
     tryCatch({
       res <- do.call(activeFunc, toDo$args)
       if(toDo$waitForIt){
@@ -97,7 +108,7 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
       if(grepl('datashield.errors', res)){ # that's an error on the node(s)
         res <- datashield.errors()
       }
-      resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = res)))
+      resQ$push('error', jsonlite::serializeJSON(list(res = res, todo = toDo)))
     }, finally = {
       st <- as.numeric(Sys.time())    # either way reset the timer
     })
@@ -105,7 +116,7 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
 }
 
 .login <- function(usr, pwd, libs = NULL, logindata, resourceMap){
-  libs <- unique(c(libs, 'dsSwissKnifeClient', 'dsQueryLibrary', 'jsonlite' , 'magrittr'))
+  libs <- unique(c(libs, 'dsSwissKnifeClient', 'dsQueryLibrary'))
   lapply(libs, library, character.only = TRUE) # load the libraries
   # finalise logindata
   logindata$user <- usr
@@ -114,7 +125,9 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
 
   ######### make one logindata entry per resource (as opposed to one per server - we'll have one or more connections per server) ###########
   resnames <- dssSwapKeys(resourceMap)
+
   logindata <- lapply(names(resnames), function(x){
+
     out <- logindata[logindata$server == resnames[[x]],,drop=FALSE]
     out$server <- x
     out
@@ -123,37 +136,49 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
   ######################### login where allowed, fail silently elsewhere #################################
   opals <- list()
   for(i in logindata$server){
-    try(opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE]), silent = TRUE)
+    try(opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE]), silent = FALSE)
+    #opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE])
   }
   return(opals)
 }
 
 
 # the heavy load:
-.load <- function(datasources, resourceMap){
+.load <- function(datasources){
   #first the resources:
-  sapply(names(resourceMap), function(res){
-    datashield.assign.resource(opals[res], sub('.','_',resourceMap[[res]], fixed = TRUE), resourceMap[[res]], async = FALSE)
+  sapply(names(datasources), function(res){
+    datashield.assign.resource(datasources[res], sub('.','_',res, fixed = TRUE), res, async = FALSE)
   })
   # load the 2 data frames
-  dsqLoad(symbol= 'measurement',
+################ !!!!!!!!!!!!!!!!!!!!!! ############### only for development!!!!!
+  dssSetOption(list('cdm_schema' = 'synthea_omop'), datasources = datasources)
+  dssSetOption(list('vocabulary_schema' = 'omop_vocabulary'), datasources = datasources)
+##########################################
+  tryCatch(dsqLoad(symbol= 'measurement',
           domain = 'concept_name',
           query_name = 'measurement',
-          where_clause = 'value as number is not null',
-          row_limit =  3000000, ## tayside doesn't handle more
+          where_clause = 'value_as_number is not null',
+        #  row_limit =  3000000, ## tayside doesn't handle more
+          row_limit =  300, ## dev only
           union = TRUE,
-          datasources = datasources)
+          datasources = datasources), error = function(e){
+            stop(datashield.errors())
+          })
   dsqLoad(symbol= 'person',
           domain = 'concept_name',
           query_name = 'person',
-          where_clause = 'value as number is not null',
           union = TRUE,
           datasources = datasources)
+  ################ !!!!!!!!!!!!!!!!!!!!!! ############### only for development!!!!!
+  dssDeriveColumn('measurement', 'measurement_date', '"12-11-2005"', datasources = datasources)
+  ##########################################
+
+
   # fix funky measurement dates:
-  dssSubset('measurement', 'measurement', row.filter = 'measurement_date >= "01-01-1970', datasources = datasources)
+
+  dssSubset('measurement', 'measurement', row.filter = 'measurement_date >= "01-01-1970"', datasources = datasources)
 
   ############## calculate age #####################
-
   # order by measurement date for each person_id
   dssSubset('measurement', 'measurement', 'order(person_id, measurement_date)', async = TRUE, datasources = datasources)
   #  measurement dates as numbers:
@@ -185,7 +210,7 @@ listen <- function( usr, pwd, logindata, resourceMap, reqPath, sourceFile, libs 
           symbol = 'working_set',
           by = 'person_id',
           datasources = datasources)
-  dssSubset('working_set', 'working_set', col.filter = 'setdiff(colnames(working_set), c("database", "f.irst_measurement_dat.e", "birth_datetime" , "location_id", "provider_id" , "care_site_id", "person_id")) ') # get rid of superfluous columns
+  dssSubset('working_set', 'working_set', col.filter = 'setdiff(colnames(working_set), c("database", "f.irst_measurement_dat.e", "birth_datetime" , "location_id", "provider_id" , "care_site_id", "person_id")) ', datasources = datasources) # get rid of superfluous columns
   try(datashield.rm(datasources, 'person'), silent = TRUE)
   try(datashield.rm(datasources, 'wide_m'), silent = TRUE)
   #### fix column names:
@@ -207,11 +232,22 @@ return(varsToCohorts)
 }
 
 
+.processConf <- function(confFile){
+  config <- readChar(confFile, file.info(confFile)$size) %>%
+    gsub('(?<=:)\\s+|(?<=\\{)\\s+|(?<=,)\\s+|(?<=\\[)\\s+','',., perl = TRUE) %>%
+    fromJSON()
+  return(list(
+                usr = config$user,
+                loginData = config$loginData,
+                resourceMap = config$resourceMap,
+                libs = config$libraries
+        )
+  )
+}
 
 
 
-
-listen <- function(reqPath,  every = 1, timeout = 1200){  # executed in the cluster node
+listen_old <- function(reqPath,  every = 1, timeout = 1200){  # executed in the cluster node
   reqQ <- txtq::txtq(reqPath)
   resQ <- txtq::txtq(resPath)
   st <- as.numeric(Sys.time())
