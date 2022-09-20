@@ -43,9 +43,9 @@ listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval 
     ############
     if(is.null(toDo$waitForIt)){
       if(!is.null(toDo$resPath)){
-        toDo$waitForit <- TRUE
+        toDo$waitForIt <- TRUE
       } else {
-        toDo$waitForit <- FALSE
+        toDo$waitForIt <- FALSE
       }
     }
     if(is.null(toDo$resPath)){
@@ -78,14 +78,14 @@ listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval 
 
     ########################
 
-  #  activeFunc <- .GlobalEnv[[toDo$fun]]
-  #  if(is.null(activeFunc)){
-  #    source(sourceFile) # try again
-  #    if(is.null(activeFunc)){
-  #      resQ$push('error', jsonlite::serializeJSON( list(message = 'Function not found')))
-  #      next
-  #    }
-  #  }
+    activeFunc <- get(toDo$fun)
+    if(is.null(activeFunc)){
+      source(sourceFile) # try again
+      if(is.null(activeFunc)){
+        resQ$push('error', jsonlite::serializeJSON( list(message = 'Function not found')))
+        next
+      }
+    }
    activeFunc <- toDo$fun
 
     if(is.null(toDo$args)){

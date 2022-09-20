@@ -8,10 +8,10 @@ test_that("listener listens to basic commands", {
   # $args - a list containing the function arguments
   # $waitForIt -  a flag indicating a result should be returned in the response queue
   ############
-  mesg <- list(fun = 'STOP', args = list(list(1)), resPath = resPath)
+  mesg <- list(fun = 'get', args = list('opals'), resPath = resPath)
   reqQ$push('fun', jsonlite::serializeJSON(mesg))
   x <- resQ$pop()
-  jsonlite::unserializeJSON(x$message)
+  y <- jsonlite::unserializeJSON(x$message)
   reqQ$log()
 
 })
