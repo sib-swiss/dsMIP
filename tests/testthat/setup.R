@@ -46,17 +46,20 @@ for(i in 1:config$workers){
 }
 ###
 
-paste0(runif(1), Sys.time()) %>% digest)
-
-
 sentry <- function(user , password = NULL, sid = NULL ){ # must return a sid
-  if(!freePipes(paste0(tempdir(TRUE), '/',config$dir), config$workers, 60)){
-    stop("Too many connections")
-  }
+  pipeDir <- paste0(tempdir(TRUE), '/',config$dir)
+
   if(is.null(sid)){ # we must login
     if(is.null(password)){ # don't even
       return(NULL)
     }
+    newSid <- paste0(runif(1), Sys.time()) %>% digest
+    newPath <- paste0(pipeDir, '/', user,'_', newSid, '/1') # new pipes in here starting with 1
+    myQ <- lckq(paste0(newPath))
+    # send the login command to the listener(s)
+
+    mesg <- list(fun = 'authLogin', args = list(user, password), resPath = newPath)
+
   }
 
 
