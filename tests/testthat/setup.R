@@ -46,4 +46,34 @@ for(i in 1:config$workers){
 }
 ###
 
+paste0(runif(1), Sys.time()) %>% digest)
 
+
+sentry <- function(user , password = NULL, sid = NULL ){ # must return a sid
+  if(!freePipes(paste0(tempdir(TRUE), '/',config$dir), config$workers, 60)){
+    stop("Too many connections")
+  }
+  if(is.null(sid)){ # we must login
+    if(is.null(password)){ # don't even
+      return(NULL)
+    }
+  }
+
+
+  carl <- HeadMinion$new(user, config$loginData, config$resourceMap,  config$libraries)
+  carl$startQueues(config$dir)
+  carl$startProc()
+  carl$loadLibs()
+  logged <- carl$login(password, TRUE)
+
+  if(logged$title == 'error'){
+    stop(logged$message)
+  }
+  devSetOptions <- function(){ # only in dev
+    dssSetOption(list('cdm_schema' = 'synthea_omop'))
+    dssSetOption(list('vocabulary_schema' = 'omop_vocabulary'))
+  }
+  carl$sendRequest(devSetOptions, waitForIt = FALSE)
+
+  return(carl)
+}
