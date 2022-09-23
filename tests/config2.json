@@ -1,5 +1,5 @@
 {
-"port":8888,
+"port": 8888,
 "libraries": ["dsSwissKnifeClient", "dsBaseClient", "dsQueryLibrary", "magrittr"],
 "loginData": [
 	{"server":"server1", "url": "https://localhost:7843", "options":"list(ssl_verifyhost=0,ssl_verifypeer=0)"},
@@ -7,10 +7,12 @@
 	],
 
 "workers": 2,
-"user": "guest",
+"appUser": "guest",
 "resourceMap":{
 	"server1":["omop_test.db"],
 	"server2":["test.db", "sophia.db"]
 	},
-"dir": "datashield-engine"
+"dir": "datashield-engine",
+"listenerFuncDir" : "/mnt/shareddisk/datashield/dsMIP/tests/listener_functions",
+"listenerStartupFuncs": ["login", "prepareData"]
 }

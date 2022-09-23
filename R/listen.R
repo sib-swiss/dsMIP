@@ -1,20 +1,19 @@
 #' @export
 
-listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval = 300){
+#listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval = 300){
+  listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
   #there will be one or more dameons running each a copy of this function, all logged into the remote nodes, all servicing one request queue
   # sourceFile contains all the functions that will be invoked by the endpoints
   library(txtq)
   library(jsonlite)
   library(magrittr)
 
-  source(sourceFile)
   reqQ <- txtq(reqPath) # the requests queue
-  conf <- .processConf(confFile)
-  pwd <- Sys.getenv('pass')
-  opals <- .login(conf$usr, pwd, conf$libs, conf$loginData, conf$resourceMap)
-  assign('opals', opals, envir = .GlobalEnv)
-  varmap <- .load(opals)
-  rm(conf)
+
+  .processConf(confFile)
+  .sourceFuncs(config$listenerFuncDir)
+  sapply(config$listenerStartupFuncs, function(x) do.call(x, list(), envir = .GlobalEnv)) # execute the startup functions (login, prepare data, etc)
+
   ################## round and round #########################################
   st <- as.numeric(Sys.time())
   while(TRUE){
@@ -33,7 +32,11 @@ listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval 
       next
     }
     ###### from here on there's business ####################################
+
+
+
     toDo <- jsonlite::unserializeJSON(msg$message)
+
     #### the message has this structure:
     # $resPath - path to the response queue
     #### no pid for now, try with one response queue per request # $pid - pid of the requesting process (to differentiate between 2 simultaneous requests from the same user)
@@ -48,51 +51,64 @@ listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval 
         toDo$waitForIt <- FALSE
       }
     }
-    if(is.null(toDo$resPath)){
-     if(toDo$waitForIt){
+    if(is.null(toDo$resPath)){ # first we need to be able to send responses
+      if(toDo$waitForIt){
         warning('No response queue defined, not executing.')
         next
-     }
+      }
     }
+    if(!is.null(toDo$resPath)){
     # ok we can use the queue:
-    resQ <- txtq(toDo$resPath)
-
-#######extra security, to be enabled later: ##############
-  #  if(!is.character(toDo$fun)){
-  #    resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = '"Fun" must me a function name, a character.')))
-  #    next
-  #  }
-#####################
+      resQ <- txtq(toDo$resPath)
+    }
     ####### deal with the"stop" message ######
 
-    if(toDo$fun == 'STOP'){
+    if(msg$title == 'STOP'){
       stopMessage <- 'Stopped'
       tryCatch({datashield.logout(opals)
         stopMessage <- paste0(stopMessage, ' and logged out.')},
         error = function(e){
-          resQ$push('error', jsonlite::serializeJSON(e$msg))
+        if(exists('resQ')) resQ$push('error', jsonlite::toJSON(e$msg))
         })
-      resQ$push('STOP', jsonlite::serializeJSON(stopMessage))
+      if(exists('resQ')){
+        resQ$push('STOP', jsonlite::toJSON(stopMessage))
+      }
       return()
     }
 
     ########################
 
-    activeFunc <- get(toDo$fun)
+
+
+    if(is.null(toDo$fun)){
+      if(exists('resQ')) resQ$push('error', jsonlite::toJSON( list(message = 'Nothing to do.', toDo = toDo)))
+    }
+
+
+#######extra security, to be enabled later: ##############
+    if(!is.character(toDo$fun)){
+      resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = '"fun" must me a function name, a character.')))
+      next
+    }
+#####################
+
+    activeFunc <- NULL
+    try( activeFunc <- get(toDo$fun))
     if(is.null(activeFunc)){
-      source(sourceFile) # try again
+      .sourceFuncs(sourceDir) # try again
+      try( activeFunc <- get(toDo$fun))
       if(is.null(activeFunc)){
-        resQ$push('error', jsonlite::serializeJSON( list(message = 'Function not found')))
+        if(exists('resQ')) resQ$push('error', jsonlite::toJSON( list(message = 'Function not found')))
         next
       }
     }
-   activeFunc <- toDo$fun
+
 
     if(is.null(toDo$args)){
       toDo$args <- list()
     }
 
-    resQ$clean() # before sending the response, like that the last response is always in the queue for later inspection
+    if(exists('resQ')) resQ$clean() # before sending the response, like that the last response is always in the queue for later inspection
 
     tryCatch({
       res <- do.call(activeFunc, toDo$args)
@@ -101,14 +117,14 @@ listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval 
         if(msg$title != 'fun'){
           title <- msg$title
         }
-        resQ$push(title, jsonlite::serializeJSON(res))
+        resQ$push(title, jsonlite::toJSON(res, auto_unbox = TRUE))
       }
     }, error = function(e){
       res <- e$message
       if(grepl('datashield.errors', res)){ # that's an error on the node(s)
         res <- datashield.errors()
       }
-      resQ$push('error', jsonlite::serializeJSON(list(res = res, todo = toDo)))
+      resQ$push('error', jsonlite::toJSON(list(res = res, todo = toDo)))
     }, finally = {
       st <- as.numeric(Sys.time())    # either way reset the timer
     })
@@ -236,16 +252,15 @@ return(varsToCohorts)
   config <- readChar(confFile, file.info(confFile)$size) %>%
     gsub('(?<=:)\\s+|(?<=\\{)\\s+|(?<=,)\\s+|(?<=\\[)\\s+','',., perl = TRUE) %>%
     fromJSON()
-  return(list(
-                usr = config$user,
-                loginData = config$loginData,
-                resourceMap = config$resourceMap,
-                libs = config$libraries
-        )
-  )
+   assign('config', config, envir = .GlobalEnv)
+   libs <- unique(c(config$libraries, 'dsSwissKnifeClient', 'dsQueryLibrary'))
+   lapply(libs, library, character.only = TRUE) # load the libraries
+
 }
 
-
+.sourceFuncs <- function(srcDir){
+  sapply(list.files(srcDir, full.names = TRUE), source)
+}
 
 listen_old <- function(reqPath,  every = 1, timeout = 1200){  # executed in the cluster node
   reqQ <- txtq::txtq(reqPath)

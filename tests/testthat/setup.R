@@ -30,21 +30,26 @@ Sys.setenv(pass = 'guest123')
 genPath <- paste0(tempdir(TRUE), '/', config$dir)
 dir.create(genPath)
 reqPath <- paste0(genPath, '/requests')
+resPath <- paste0(genPath, '/responses')
 reqQ <- txtq(reqPath)
-sourceFile <- '../listener_functions.R'
+#sourceFile <- '../listener_functions.R'
+sourceDir <- '../listener_functions'
 listeners <- list()
 for(i in 1:config$workers){
-  Sys.sleep(20)
+  Sys.sleep(3)
     outPath <- paste0(genPath, '/out_', i)
   errPath <- paste0(genPath, '/err_', i)
 
-  code <- paste0("dsMIP::listen('",confFile, "','", reqPath, "','", sourceFile,"')")
+ # code <- paste0("dsMIP::listen('",confFile, "','", reqPath, "','", sourceFile,"')")
+  code <- paste0("dsMIP::listen('",confFile, "','", reqPath, "')")
   print(code)
   listeners[[i]] <- processx::process$new('/usr/bin/Rscript',
                                           c('-e',code), cleanup = FALSE, stderr = errPath, stdout = outPath)
 
 }
 ###
+
+
 
 sentry <- function(user , password = NULL, sid = NULL ){ # must return a sid
   pipeDir <- paste0(tempdir(TRUE), '/',config$dir)
@@ -61,22 +66,6 @@ sentry <- function(user , password = NULL, sid = NULL ){ # must return a sid
     mesg <- list(fun = 'authLogin', args = list(user, password), resPath = newPath)
 
   }
-
-
-  carl <- HeadMinion$new(user, config$loginData, config$resourceMap,  config$libraries)
-  carl$startQueues(config$dir)
-  carl$startProc()
-  carl$loadLibs()
-  logged <- carl$login(password, TRUE)
-
-  if(logged$title == 'error'){
-    stop(logged$message)
-  }
-  devSetOptions <- function(){ # only in dev
-    dssSetOption(list('cdm_schema' = 'synthea_omop'))
-    dssSetOption(list('vocabulary_schema' = 'omop_vocabulary'))
-  }
-  carl$sendRequest(devSetOptions, waitForIt = FALSE)
-
-  return(carl)
 }
+
+

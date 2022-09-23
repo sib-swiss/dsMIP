@@ -13,6 +13,6 @@ License: GPL
 Encoding: UTF-8
 LazyData: true
 Depends: RestRserve, processx, R6, digest, dsSwissKnifeClient, dsBaseClient, dsQueryLibrary, txtq
-RoxygenNote: 7.1.2
+RoxygenNote: 7.2.0
 Suggests: 
     testthat
