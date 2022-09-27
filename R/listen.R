@@ -1,7 +1,4 @@
-#' @export
-
-#listen <- function(confFile, reqPath, sourceFile,  every = 1, heartbeatInterval = 300){
-  listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
+listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
   #there will be one or more dameons running each a copy of this function, all logged into the remote nodes, all servicing one request queue
   # sourceFile contains all the functions that will be invoked by the endpoints
   library(txtq)
@@ -9,10 +6,13 @@
   library(magrittr)
 
   reqQ <- txtq(reqPath) # the requests queue
-
+  # obligatory startup processing:
   .processConf(confFile)
   .sourceFuncs(config$listenerFuncDir)
-  sapply(config$listenerStartupFuncs, function(x) do.call(x, list(), envir = .GlobalEnv)) # execute the startup functions (login, prepare data, etc)
+  .login()
+
+  # whatever the app wants to add here:
+  sapply(config$listenerStartupFuncs, function(x) do.call(x, list(), envir = .GlobalEnv)) # execute the startup functions (prepare data, etc)
 
   ################## round and round #########################################
   st <- as.numeric(Sys.time())
@@ -131,14 +131,16 @@
   } ## while loop
 }
 
-.login <- function(usr, pwd, libs = NULL, logindata, resourceMap){
-  libs <- unique(c(libs, 'dsSwissKnifeClient', 'dsQueryLibrary'))
-  lapply(libs, library, character.only = TRUE) # load the libraries
-  # finalise logindata
-  logindata$user <- usr
-  logindata$password <- pwd
-  logindata$driver <- 'OpalDriver'
+.login <- function(){
+  # config is in the global env
+  logindata <- config$loginData
+  resourceMap <- config$resourceMap
 
+  # finalise logindata
+  logindata$user <-config$appUser
+  logindata$password <- Sys.getenv('pass')
+  logindata$driver <- 'OpalDriver'
+  Sys.unsetenv('pass')
   ######### make one logindata entry per resource (as opposed to one per server - we'll have one or more connections per server) ###########
   resnames <- dssSwapKeys(resourceMap)
 
@@ -155,98 +157,14 @@
     try(opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE]), silent = FALSE)
     #opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE])
   }
-  return(opals)
+  #### sanitize and save logindata in the environment for later user logins
+  logindata$password <- NULL
+  logindata$user <- NULL
+  assign('logindata', logindata, envir = .GlobalEnv)
+  ####### opals in the environment
+  assign('opals', opals, envir = .GlobalEnv)
+  return(names(opals))
 }
-
-
-# the heavy load:
-.load <- function(datasources){
-  #first the resources:
-  sapply(names(datasources), function(res){
-    datashield.assign.resource(datasources[res], sub('.','_',res, fixed = TRUE), res, async = FALSE)
-  })
-  # load the 2 data frames
-################ !!!!!!!!!!!!!!!!!!!!!! ############### only for development!!!!!
-  dssSetOption(list('cdm_schema' = 'synthea_omop'), datasources = datasources)
-  dssSetOption(list('vocabulary_schema' = 'omop_vocabulary'), datasources = datasources)
-##########################################
-  tryCatch(dsqLoad(symbol= 'measurement',
-          domain = 'concept_name',
-          query_name = 'measurement',
-          where_clause = 'value_as_number is not null',
-        #  row_limit =  3000000, ## tayside doesn't handle more
-          row_limit =  300, ## dev only
-          union = TRUE,
-          datasources = datasources), error = function(e){
-            stop(datashield.errors())
-          })
-  dsqLoad(symbol= 'person',
-          domain = 'concept_name',
-          query_name = 'person',
-          union = TRUE,
-          datasources = datasources)
-  ################ !!!!!!!!!!!!!!!!!!!!!! ############### only for development!!!!!
-  dssDeriveColumn('measurement', 'measurement_date', '"12-11-2005"', datasources = datasources)
-  ##########################################
-
-
-  # fix funky measurement dates:
-
-  dssSubset('measurement', 'measurement', row.filter = 'measurement_date >= "01-01-1970"', datasources = datasources)
-
-  ############## calculate age #####################
-  # order by measurement date for each person_id
-  dssSubset('measurement', 'measurement', 'order(person_id, measurement_date)', async = TRUE, datasources = datasources)
-  #  measurement dates as numbers:
-  dssDeriveColumn('measurement', 'measurement_date_n', 'as.numeric(as.Date(measurement_date))', datasources = datasources)
-  # add a dummy column just for the widening formula, this will hold eventually the 'aggregate' first measurement date
-  dssDeriveColumn('measurement', 'f', '"irst_measurement_dat.e"', datasources = datasources)
-  # now we can widen by that column and pick the first value:
-  dssPivot(symbol = 'first_m_dates', what ='measurement', value.var = 'measurement_date_n',
-           formula = 'person_id ~ f',
-           by.col = 'person_id',
-           fun.aggregate = function(x)x[1], # we are sure it's the first date, baseline, they've been ordered
-           async = TRUE,
-           datasources = datasources)
-
-  dssJoin(c('person', 'first_m_dates'), symbol= 'person', by = 'person_id', join.type = 'inner', datasources = datasources)
-  try(datashield.rm(datasources, 'first_m_dates'), silent = TRUE) # keep it slim
-  # now calculate the age at first measurement:
-  dssDeriveColumn('person', 'age', 'round((f.irst_measurement_dat.e - as.numeric(as.Date(birth_datetime)))/365)', datasources = datasources)
-
-  ###################  finished with age ##########################################
-
-  dssPivot(symbol = 'wide_m', what ='measurement', value.var = 'value_as_number',
-           formula = 'person_id ~ measurement_name',
-           by.col = 'person_id',
-           fun.aggregate = function(x)x[1], # maybe we'll want mean here?
-           datasources = datasources)
-  try(datashield.rm(datasources, 'measurement'), silent = TRUE)
-  dssJoin(what = c('wide_m', 'person'),
-          symbol = 'working_set',
-          by = 'person_id',
-          datasources = datasources)
-  dssSubset('working_set', 'working_set', col.filter = 'setdiff(colnames(working_set), c("database", "f.irst_measurement_dat.e", "birth_datetime" , "location_id", "provider_id" , "care_site_id", "person_id")) ', datasources = datasources) # get rid of superfluous columns
-  try(datashield.rm(datasources, 'person'), silent = TRUE)
-  try(datashield.rm(datasources, 'wide_m'), silent = TRUE)
-  #### fix column names:
-  n <- dssColNames('working_set', datasources = datasources)
-  sapply(names(n), function(x){
-    cnames <- n[[x]]
-    cnames <- sub('measurement_name.', '', cnames, fixed = TRUE)
-    dssColNames('working_set', cnames, datasources = datasources[[x]])
-  })
- # create varmap:
-  varsToCohorts <- dssSwapKeys(n)
-  varsToCohorts <- sapply(varsToCohorts, function(a){
-    list(type = 'number', cohorts = a)
-  }, simplify = FALSE)
-  varsToCohorts[c('ethnicity', 'race', 'gender')] <- sapply(varsToCohorts[c('ethnicity', 'race', 'gender')], function(a){
-                                                              list(type = 'nominal', cohorts = a$cohorts)
-                                                     }, simplify = FALSE)
-return(varsToCohorts)
-}
-
 
 .processConf <- function(confFile){
   config <- readChar(confFile, file.info(confFile)$size) %>%
@@ -262,3 +180,11 @@ return(varsToCohorts)
   sapply(list.files(srcDir, full.names = TRUE), source)
 }
 
+authLogin <- function(user, pass){
+  logindata <- get('logindata', envir = .GlobalEnv) # it's been put there at startup
+  logindata$user <- user
+  logindata$password <- pass
+  userOpals <- datashield.login(logindata) # any error here will be escalated
+  datashield.logout(userOpals) # don't need this sesssion, just the authentication
+  return('OK')
+}

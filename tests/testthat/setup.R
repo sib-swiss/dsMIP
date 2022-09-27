@@ -32,40 +32,32 @@ dir.create(genPath)
 reqPath <- paste0(genPath, '/requests')
 resPath <- paste0(genPath, '/responses')
 reqQ <- txtq(reqPath)
-#sourceFile <- '../listener_functions.R'
-sourceDir <- '../listener_functions'
+
 listeners <- list()
 for(i in 1:config$workers){
   Sys.sleep(3)
-    outPath <- paste0(genPath, '/out_', i)
+  outPath <- paste0(genPath, '/out_', i)
   errPath <- paste0(genPath, '/err_', i)
-
- # code <- paste0("dsMIP::listen('",confFile, "','", reqPath, "','", sourceFile,"')")
   code <- paste0("dsMIP::listen('",confFile, "','", reqPath, "')")
   print(code)
   listeners[[i]] <- processx::process$new('/usr/bin/Rscript',
                                           c('-e',code), cleanup = FALSE, stderr = errPath, stdout = outPath)
 
 }
-###
+#########
+## app stuff:
 
+sentry <- makeSentryFunction(requestQ = reqQ, responsePath = resPath)
 
+sentryBackend <- SentryBackend$new( FUN = sentry)
 
-sentry <- function(user , password = NULL, sid = NULL ){ # must return a sid
-  pipeDir <- paste0(tempdir(TRUE), '/',config$dir)
+sentryMw <- AuthMiddleware$new(
+  auth_backend = sentryBackend,
+  routes = "/",
+  match = "partial",
+  id = "sentry_middleware"
+)
 
-  if(is.null(sid)){ # we must login
-    if(is.null(password)){ # don't even
-      return(NULL)
-    }
-    newSid <- paste0(runif(1), Sys.time()) %>% digest
-    newPath <- paste0(pipeDir, '/', user,'_', newSid, '/1') # new pipes in here starting with 1
-    myQ <- lckq(paste0(newPath))
-    # send the login command to the listener(s)
-
-    mesg <- list(fun = 'authLogin', args = list(user, password), resPath = newPath)
-
-  }
-}
+app <-  Application$new(content_type = "application/json", middleware = list(sentryMw))
 
 

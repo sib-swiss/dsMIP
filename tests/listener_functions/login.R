@@ -24,7 +24,7 @@ login <- function(usr, pwd){
     try(opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE]), silent = FALSE)
     #opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE])
   }
-  # sanitize and save logindata in the environment for later user logins
+  #### sanitize and save logindata in the environment for later user logins
   logindata$password <- NULL
   logindata$user <- NULL
   assign('logindata', logindata, envir = .GlobalEnv)
