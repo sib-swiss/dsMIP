@@ -60,4 +60,6 @@ sentryMw <- AuthMiddleware$new(
 
 app <-  Application$new(content_type = "application/json", middleware = list(sentryMw))
 
+do.call
 
+sapply(list.files(config$listenerFuncDir, full.names = TRUE), function(x) source(x, local = lst))
