@@ -36,7 +36,7 @@ qCommand <- function(requestQ, responsePath, title = 'fun', message = list(fun =
 
 #'@export
 testConcurrentRequests <- function(genPath, sleepTime = 5){
-  resPath <- paste0(genPath, '/testdir')
+  resPath <- paste0(genPath, '/responses')
   reqPath <- paste0(genPath, '/requests')
   reqQ <- txtq(reqPath)
   mesg <- list(fun = 'Sys.sleep', args = list(sleepTime))
