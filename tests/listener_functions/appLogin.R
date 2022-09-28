@@ -1,4 +1,4 @@
-login <- function(usr, pwd){
+appLogin <- function(usr, pwd){
   # config is in the global env
   logindata <- config$loginData
   resourceMap <- config$resourceMap
@@ -12,7 +12,6 @@ login <- function(usr, pwd){
   resnames <- dssSwapKeys(resourceMap)
 
   logindata <- lapply(names(resnames), function(x){
-
     out <- logindata[logindata$server == resnames[[x]],,drop=FALSE]
     out$server <- x
     out

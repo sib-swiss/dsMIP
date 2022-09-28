@@ -7,15 +7,20 @@ SentryBackend <- R6::R6Class('SentryBackend',
                              inherit = AuthBackendBasic,
                              public = list(
                                authenticate = function(request, response) {
+
                                   mySid <- request$cookies[['sid']]
+
                                   res <- NULL
                                   if (!is.null(mySid)){  # if we have a sid
+
                                     myUser <- request$cookies[['user']]
-                                    res <- super$auth_fun(user = myUser, password = NULL, sid = mySid)
+
+                                    res <- private$auth_fun(user = myUser, password = NULL, sid = mySid)
                                   } else { # no sid, this is the login
                                     user_password = private$extract_credentials(request, response)
                                     myUser <- user_password[[1]]
-                                    res <- super$auth_fun(myUser, user_password[[2]], sid = NULL)
+
+                                    res <- private$auth_fun(myUser, user_password[[2]], sid = NULL)
                                   }
                                   if(res == 'unauthorized'){
                                     raise(self$HTTPError$unauthorized(
@@ -29,6 +34,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
                                     )
                                   }
                                   if (!is.null(res)) {  # auth_fun must return a sid
+                                    mySid <- res
                                     response$set_cookie('sid', mySid) # do I set it every time?
                                     response$set_cookie('user', myUser) # do I set it every time?
                                     return(TRUE)
@@ -51,19 +57,18 @@ SentryBackend <- R6::R6Class('SentryBackend',
 makeSentryFunction <- function(requestQ, responsePath, timeout = 1800){
 
   sentryFunc <-  function(user, password = NULL, sid = NULL ){ # must return a sid
+    print(password)
     if(is.null(sid)){ # we must login
       if(is.null(password)){ # don't even
         return('unauthorized')
       }
-      newSid <- paste0(runif(1), Sys.time()) %>% digest
-      newPath <- paste0(responsePath, '/', user,'_', newSid) # new pipes in here starting with 1
+      sid <- paste0(runif(1), Sys.time()) %>% digest
+      newPath <- paste0(responsePath, '/', user,'_', sid) # new pipes in here starting with 1
 
       # send the login command to the listener(s)
       mesg <- list(fun = 'authLogin', args = list(user, password))
       logged <- qCommand(reqQ, newPath, message = mesg, wait = TRUE, timeout = 60)
-      if(logged$message == 'OK'){
-        return(newSid)
-      } else {
+      if(jsonlite::fromJSON(logged$message) != 'OK'){
         return('unauthorized')
       }
     } else {  # we have a sid, handle timeouts
@@ -76,9 +81,11 @@ makeSentryFunction <- function(requestQ, responsePath, timeout = 1800){
         unlink(myPath, recursive = TRUE, force = TRUE)
         return(paste0('timeout after ', timeout, ' seconds'))
       }
-
     }
+    return(sid)
   }
 
   return(sentryFunc)
 }
+
+

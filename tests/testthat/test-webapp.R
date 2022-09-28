@@ -748,7 +748,6 @@ system.time(test_that("Login works", {
   headers <- list("Authorization" = sprintf("Basic %s", credentials))
   req <<- Request$new(
     path = "/login",
-    parameters_query = list(nocache = 'true'),
     headers = headers
   )
   response <<- app$process_request(req)

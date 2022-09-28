@@ -1,3 +1,4 @@
+#'@export
 listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
   #there will be one or more dameons running each a copy of this function, all logged into the remote nodes, all servicing one request queue
   # sourceFile contains all the functions that will be invoked by the endpoints
@@ -9,10 +10,17 @@ listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
   # obligatory startup processing:
   .processConf(confFile)
   .sourceFuncs(config$listenerFuncDir)
-  .login()
-
   # whatever the app wants to add here:
-  sapply(config$listenerStartupFuncs, function(x) do.call(x, list(), envir = .GlobalEnv)) # execute the startup functions (prepare data, etc)
+  sapply(config$listenerStartupFuncs, function(x){
+    tryCatch(do.call(x, list(), envir = .GlobalEnv),
+             error = function(e){
+               if(grepl('datashield.errors', e)){ # that's an error on the node(s)
+                 e <- datashield.errors()
+               }
+                 stop(e)
+               })
+
+    }) # execute the startup functions (*login*, prepare data, etc)
 
   ################## round and round #########################################
   st <- as.numeric(Sys.time())
@@ -131,40 +139,7 @@ listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
   } ## while loop
 }
 
-.login <- function(){
-  # config is in the global env
-  logindata <- config$loginData
-  resourceMap <- config$resourceMap
 
-  # finalise logindata
-  logindata$user <-config$appUser
-  logindata$password <- Sys.getenv('pass')
-  logindata$driver <- 'OpalDriver'
-  Sys.unsetenv('pass')
-  ######### make one logindata entry per resource (as opposed to one per server - we'll have one or more connections per server) ###########
-  resnames <- dssSwapKeys(resourceMap)
-
-  logindata <- lapply(names(resnames), function(x){
-
-    out <- logindata[logindata$server == resnames[[x]],,drop=FALSE]
-    out$server <- x
-    out
-  }) %>% Reduce(rbind,.)
-  ##################################################
-  ######################### login where allowed, fail silently elsewhere #################################
-  opals <- list()
-  for(i in logindata$server){
-    try(opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE]), silent = FALSE)
-    #opals[i] <- datashield.login(logindata[logindata$server == i,,drop = FALSE])
-  }
-  #### sanitize and save logindata in the environment for later user logins
-  logindata$password <- NULL
-  logindata$user <- NULL
-  assign('logindata', logindata, envir = .GlobalEnv)
-  ####### opals in the environment
-  assign('opals', opals, envir = .GlobalEnv)
-  return(names(opals))
-}
 
 .processConf <- function(confFile){
   config <- readChar(confFile, file.info(confFile)$size) %>%
@@ -180,11 +155,4 @@ listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
   sapply(list.files(srcDir, full.names = TRUE), source)
 }
 
-authLogin <- function(user, pass){
-  logindata <- get('logindata', envir = .GlobalEnv) # it's been put there at startup
-  logindata$user <- user
-  logindata$password <- pass
-  userOpals <- datashield.login(logindata) # any error here will be escalated
-  datashield.logout(userOpals) # don't need this sesssion, just the authentication
-  return('OK')
-}
+

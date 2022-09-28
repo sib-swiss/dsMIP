@@ -14,5 +14,6 @@
 	},
 "dir": "datashield-engine",
 "listenerFuncDir" : "/mnt/shareddisk/datashield/dsMIP/tests/listener_functions",
-"listenerStartupFuncs": ["login", "prepareData"]
+"listenerStartupFuncs": ["appLogin", "prepareData"],
+"endpointDir" : "/mnt/shareddisk/datashield/dsMIP/tests/endpoints"
 }

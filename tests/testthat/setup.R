@@ -49,10 +49,10 @@ for(i in 1:config$workers){
 
 sentry <- makeSentryFunction(requestQ = reqQ, responsePath = resPath)
 
-sentryBackend <- SentryBackend$new( FUN = sentry)
+sbck<- SentryBackend$new( FUN = sentry)
 
 sentryMw <- AuthMiddleware$new(
-  auth_backend = sentryBackend,
+  auth_backend = sbck,
   routes = "/",
   match = "partial",
   id = "sentry_middleware"
@@ -60,6 +60,9 @@ sentryMw <- AuthMiddleware$new(
 
 app <-  Application$new(content_type = "application/json", middleware = list(sentryMw))
 
-do.call
 
-sapply(list.files(config$listenerFuncDir, full.names = TRUE), function(x) source(x, local = lst))
+for(p in list.files(config$endpointDir, full.names = TRUE)){
+  temp <- new.env()
+  source(p, local = temp)
+  do.call(app$add_route, as.list(temp)[[1]])
+}
