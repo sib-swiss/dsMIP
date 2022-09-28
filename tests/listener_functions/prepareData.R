@@ -14,7 +14,7 @@
                    query_name = 'measurement',
                    where_clause = 'value_as_number is not null',
                    #  row_limit =  3000000, ## tayside doesn't handle more
-                   row_limit =  300, ## dev only
+                   #row_limit =  300, ## dev only
                    union = TRUE,
                    datasources = opals), error = function(e){
                      stop(datashield.errors())
@@ -78,6 +78,7 @@
     dssColNames('working_set', cnames, datasources = opals[[x]])
   })
   # create varmap:
+  n <- dssColNames('working_set', datasources = opals)
   varsToCohorts <- dssSwapKeys(n)
   varsToCohorts <- sapply(varsToCohorts, function(a){
     list(type = 'number', cohorts = a)
@@ -86,5 +87,5 @@
     list(type = 'nominal', cohorts = a$cohorts)
   }, simplify = FALSE)
   assign('varmap', varsToCohorts, envir = .GlobalEnv)
-  return(varsToCohorts)
+  assign('cnames', n, envir = .GlobalEnv)
 }

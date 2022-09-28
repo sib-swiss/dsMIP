@@ -44,6 +44,11 @@ for(i in 1:config$workers){
                                           c('-e',code), cleanup = FALSE, stderr = errPath, stdout = outPath)
 
 }
+
+# get the varmap:
+
+varmap <-qCommand(reqQ, resPath, message = list(fun = 'identity', args = list(quote(varmap))))$message %>% fromJSON()
+cnames <-qCommand(reqQ, resPath, message = list(fun = 'identity', args = list(quote(cnames))))$message %>% fromJSON()
 #########
 ## app stuff:
 
