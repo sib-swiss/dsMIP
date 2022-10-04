@@ -57,7 +57,7 @@ SentryBackend <- R6::R6Class('SentryBackend',
 makeSentryFunction <- function(requestQ, responsePath, timeout = 1800){
 
   sentryFunc <-  function(user, password = NULL, sid = NULL ){ # must return a sid
-    print(password)
+
     if(is.null(sid)){ # we must login
       if(is.null(password)){ # don't even
         return('unauthorized')

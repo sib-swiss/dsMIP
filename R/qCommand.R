@@ -16,6 +16,8 @@ qCommand <- function(requestQ, responsePath, title = 'fun', message = list(fun =
     myPath <- paste0(responsePath, '/',i)
     responseQ <- lckq(myPath)
     if(responseQ$lockFor({
+      # it's my queue now, first reset it to avoid confusions,  then send the command
+      responseQ$reset()
       message$resPath <- myPath
       message <- jsonlite::serializeJSON(message)
       requestQ$push(title, message)

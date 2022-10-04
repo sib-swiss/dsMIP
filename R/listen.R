@@ -5,7 +5,7 @@ listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
   library(txtq)
   library(jsonlite)
   library(magrittr)
-
+  on.exit(try(datashield.logout(opals)))
   reqQ <- txtq(reqPath) # the requests queue
   # obligatory startup processing:
   .processConf(confFile)
@@ -95,7 +95,7 @@ listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
 
 #######extra security, to be enabled later: ##############
     if(!is.character(toDo$fun)){
-      resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = '"fun" must me a function name, a character.')))
+      resQ$push('error', jsonlite::serializeJSON(list(pid = toDo$pid, message = '"fun" must be a function name, a character.')))
       next
     }
 #####################
@@ -148,11 +148,12 @@ listen <- function(confFile, reqPath, every = 1, heartbeatInterval = 300){
    assign('config', config, envir = .GlobalEnv)
    libs <- unique(c(config$libraries, 'dsSwissKnifeClient', 'dsQueryLibrary'))
    lapply(libs, library, character.only = TRUE) # load the libraries
-
+   return(TRUE)
 }
 
 .sourceFuncs <- function(srcDir){
-  sapply(list.files(srcDir, full.names = TRUE), source)
+   sapply(list.files(srcDir, full.names = TRUE), source)
+   return(TRUE)
 }
 
 

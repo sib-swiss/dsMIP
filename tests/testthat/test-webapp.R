@@ -845,7 +845,7 @@ test_that(" Endpoint /runAlgorithm works with linear regression", {
 
 test_that(" Endpoint /runAlgorithm works with logistic regression", {
   ### make the request:
-  req4 <- Request$new(
+  req <- Request$new(
     path = "/runAlgorithm",
 
     body = jsonlite::toJSON(list(algorithm = list(id = 'logistic-regression',
@@ -857,7 +857,7 @@ test_that(" Endpoint /runAlgorithm works with logistic regression", {
     cookies = ck,
     content_type = 'application/json'
   )
-  response4 <- app$process_request(req4)
+  response <- app$process_request(req)
 
   expect_equal(response4$body$Ntotal, 214)
 })

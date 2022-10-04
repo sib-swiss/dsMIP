@@ -14,7 +14,7 @@
                    query_name = 'measurement',
                    where_clause = 'value_as_number is not null',
                    #  row_limit =  3000000, ## tayside doesn't handle more
-                   #row_limit =  300, ## dev only
+                   # row_limit =  3000, ## dev only
                    union = TRUE,
                    datasources = opals), error = function(e){
                      stop(datashield.errors())
@@ -49,7 +49,7 @@
            datasources = opals)
 
   dssJoin(c('person', 'first_m_dates'), symbol= 'person', by = 'person_id', join.type = 'inner', datasources = opals)
-  try(datashield.rm(datasources, 'first_m_dates'), silent = TRUE) # keep it slim
+  try(datashield.rm(opals, 'first_m_dates'), silent = FALSE) # keep it slim
   # now calculate the age at first measurement:
   dssDeriveColumn('person', 'age', 'round((f.irst_measurement_dat.e - as.numeric(as.Date(birth_datetime)))/365)', datasources = opals)
 
@@ -60,7 +60,7 @@
            by.col = 'person_id',
            fun.aggregate = function(x)x[1], # maybe we'll want mean here?
            datasources = opals)
-  try(datashield.rm(datasources, 'measurement'), silent = TRUE)
+  try(datashield.rm(opals, 'measurement'), silent = FALSE)
   dssJoin(what = c('wide_m', 'person'),
           symbol = 'working_set',
           by = 'person_id',
@@ -77,15 +77,45 @@
     cnames <- sub('measurement_name.', '', cnames, fixed = TRUE)
     dssColNames('working_set', cnames, datasources = opals[[x]])
   })
+
   # create varmap:
   n <- dssColNames('working_set', datasources = opals)
+
+
+
   varsToCohorts <- dssSwapKeys(n)
   varsToCohorts <- sapply(varsToCohorts, function(a){
     list(type = 'number', cohorts = a)
   }, simplify = FALSE)
-  varsToCohorts[c('ethnicity', 'race', 'gender')] <- sapply(varsToCohorts[c('ethnicity', 'race', 'gender')], function(a){
-    list(type = 'nominal', cohorts = a$cohorts)
+  varsToCohorts[c('ethnicity', 'race', 'gender')] <- sapply(c('ethnicity', 'race', 'gender'), function(a){
+    l <- ds.levels(paste0('working_set$',a), datasources = opals)
+    enum <- sapply(l, '[[', 'Levels', simplify = FALSE) %>% Reduce(union,.) %>% lapply(function(en)list(value = en, label = en)) # maybe we'll want per cohort at some point?
+    list(type = 'nominal', cohorts = varsToCohorts[[a]]$cohorts, enumerations = enum)
   }, simplify = FALSE)
+
+  ##### create the json for the bubbles:
+  bubble <- list()
+  bubble$datasets <- lapply(names(n), function(x) list(id = x, label = x))
+  bubble$groups <- list(
+    list(id = 'measurement',
+         label = 'measurement',
+         coVariables = sapply(n, function(x) setdiff(x, c('age', 'race', 'ethnicity', 'gender')), simplify = FALSE)
+         ),
+    list( id = 'demographics',
+          label = 'demographics',
+          coVariables = c('ethnicity', 'race', 'gender'))
+   )
+  bubble$rootGroup <- list(id = 'root',
+                    label = 'Root Group',
+                    groups = c('demographics', 'measurement')
+  )
+  bubble$coVariables <- lapply(names(varsToCohorts), function(x){
+    thisone <- varsToCohorts[[x]]
+    out <- thisone[setdiff(names(thisone), 'cohorts')]
+    out$id <- x
+    out
+  })
   assign('varmap', varsToCohorts, envir = .GlobalEnv)
   assign('cnames', n, envir = .GlobalEnv)
+  assign('bubble', bubble, envir = .GlobalEnv)
 }
